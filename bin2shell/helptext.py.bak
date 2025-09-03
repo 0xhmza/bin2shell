@@ -1,0 +1,128 @@
+from __future__ import annotations
+import os
+from typing import Any, Dict, List
+
+
+def _print_block_table(out: List[str], title: str, items: List[Dict[str, Any]], cpp_key: str) -> None:
+    out.append(title + ":")
+    name_w = max((len(spec["name"]) for spec in items), default=4)
+    for spec in items:
+        idx = spec["index"]
+        name = spec["name"]
+        desc = spec.get("desc", "")
+        cpp_has = cpp_key in spec and bool(spec.get(cpp_key, "").strip())
+        cpp_part = "" if cpp_has else " (missing C++ snippet!)"
+        desc_part = f" — {desc}" if desc else ""
+        out.append(f"  [{idx:<2}] {name:<{name_w}}{desc_part}{cpp_part}")
+    out.append("")
+
+
+def print_dynamic_help(
+    argv0: str,
+    cat,
+    default_yaml_rel: str,
+    resolved_yaml_path: str | None = None,
+    load_error: str | None = None,
+) -> None:
+    exe = os.path.basename(argv0) if argv0 else "main.py"
+    out: List[str] = []
+
+    # Overview first
+    out.extend(_overview_lines(default_yaml_rel))
+    out.append("")
+
+    # Usage and options next
+    out.append("Usage:")
+    out.append(
+        f"  {exe} [-y <yaml>] [-e <enc_idx>] [-c <comp_idx>] [-env <env_idx>] [-s <method> [n]] <file>\n"
+    )
+    out.append("Options:")
+    out.append(
+        f"  -y,   --yaml <path>         Path to algorithms YAML (default: {default_yaml_rel})"
+    )
+    out.append("  -e,   --encoding <idx>      Encoder index")
+    out.append("  -c,   --compression <idx>   Compressor index")
+    out.append("  -env, --envelop <idx>       Envelope index")
+    out.append("  -s,   --sleep <method> [n]  Inject sleep; if n provided, duration is n")
+    out.append("  -h,   --help                Show this help")
+    out.append("")
+
+    # Available algorithms from YAML (defaulted when -y not given)
+    if cat is not None:
+        out.append("Available From YAML:")
+        _print_block_table(out, "Encoders", cat.list_block("encoders"), "cpp_inverse")
+        _print_block_table(out, "Compressors", cat.list_block("compressors"), "cpp_decompress")
+        _print_block_table(out, "Envelopes", cat.list_block("envelopes"), "cpp_decode")
+        sleeps = cat.list_block("sleeps") if getattr(cat, "sleeps", None) else []
+        if sleeps:
+            out.append("Sleepers:")
+            name_w = max((len(spec["name"]) for spec in sleeps), default=4)
+            for spec in sleeps:
+                idx = spec["index"]
+                name = spec["name"]
+                desc = spec.get("desc", "")
+                desc_part = f" — {desc}" if desc else ""
+                out.append(f"  [{idx:<2}] {name:<{name_w}}{desc_part}")
+            out.append("")
+        out.append("Defaults (if not specified):")
+        out.append(f"  encoder    -> index {cat.default_index('encoders')}")
+        out.append(f"  compressor -> index {cat.default_index('compressors')}")
+        out.append(f"  envelope   -> index {cat.default_index('envelopes')}")
+    else:
+        # Provide a helpful pointer about the default location that was tried
+        if resolved_yaml_path:
+            if os.path.isfile(resolved_yaml_path):
+                msg = "Failed to load default YAML at '" + resolved_yaml_path + "'"
+                if load_error:
+                    msg += ": " + load_error
+                out.append(msg)
+            else:
+                out.append("Default YAML not found at '" + resolved_yaml_path + "'.")
+        else:
+            out.append(
+                "YAML not loaded; expected default at '" + default_yaml_rel + "' relative to cwd."
+            )
+
+    print("\n".join(out) + "\n")
+
+
+def _overview_lines(default_yaml_rel: str) -> list[str]:
+    lines: list[str] = []
+    lines.append("Overview:")
+    lines.append("  Purpose: generate C/C++ that reconstructs an input binary at runtime.")
+    lines.append(
+        "  Pipeline (forward in Python, reversed in emitted C++):"
+    )
+    lines.append(
+        "    - Compression: produce compact bytes and optional dictionaries."
+    )
+    lines.append(
+        "    - Encoding: reversible transform using optional keys (e.g., XOR/ARX)."
+    )
+    lines.append(
+        "    - Envelope: render bytes to printable text (e.g., Base91/Base64)."
+    )
+    lines.append(
+        "  YAML-driven: algorithms and inverse C++ live in the YAML catalog."
+    )
+    lines.append("")
+    lines.append("Sleep injection:")
+    lines.append(
+        "  Use -s/--sleep to inject delay into loops via {SLEEP_SNIPPET}."
+    )
+    lines.append(
+        "  Sleep methods live under top-level 'sleeps'; duration semantics are method-specific."
+    )
+    lines.append("")
+    lines.append("Bypass mode:")
+    lines.append(
+        "  Index 0 is reserved for 'none' across encoder/compressor/envelope."
+    )
+    lines.append(
+        "  Omitting -e/-c/-env implies 0 (none)."
+    )
+    lines.append(
+        f"  Default YAML location: {default_yaml_rel} (relative to cwd), override with -y."
+    )
+    return lines
+
