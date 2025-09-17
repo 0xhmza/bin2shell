@@ -79,9 +79,9 @@ def main(argv: List[str]) -> int:
     env_idx: int | None = None
     filename: str | None = None
     yaml_path: str | None = None
-    sleep_sel: str | None = None
-    sleep_duration: int | None = None
-    snippet_args: List[int] | None = None
+    anti_sel: str | None = None
+    snippet_args: List[str] = []
+    positional: List[str] = []
 
     i = 1
     while i < len(argv):
@@ -126,51 +126,44 @@ def main(argv: List[str]) -> int:
                 return 1
             i += 2
             continue
-        elif a in ("-s", "--sleep"):
+        elif a in ("-ae", "--entiemulation"):
             if i + 1 >= len(argv):
-                sys.stderr.write("Error: -s/--sleep requires a method or duration\n")
+                sys.stderr.write("Error: -ae/--entiemulation requires a method name\n")
                 return 1
-            nxt = argv[i + 1]
-            try:
-                # If numeric, treat as duration with default method thread_ms
-                sleep_duration = int(nxt)
-                sleep_sel = "thread_ms"
-                i += 2
-                continue
-            except ValueError:
-                pass
-            # Otherwise, it's a method name or index; optional duration follows
-            sleep_sel = nxt
-            if i + 2 < len(argv):
-                try:
-                    sleep_duration = int(argv[i + 2])
-                    i += 3
-                    continue
-                except ValueError:
-                    pass
-            i += 2
-            continue
-        elif a == "--args":
-            if i + 1 >= len(argv):
-                sys.stderr.write("Error: --args requires a colon-separated list, e.g., 10:5\n")
-                return 1
-            raw = argv[i + 1]
-            parts = [p for p in raw.split(":") if p != ""]
-            try:
-                snippet_args = [int(p, 10) for p in parts]
-            except ValueError:
-                sys.stderr.write("Error: --args values must be integers\n")
-                return 1
+            anti_sel = argv[i + 1]
             i += 2
             continue
         else:
-            if filename is None:
-                filename = a
+            positional.append(a)
             i += 1
 
-    if not filename:
+    if not positional:
         sys.stderr.write("Error: No input file provided\n")
         return 1
+
+    filename = positional[-1]
+    extras = positional[:-1]
+
+    snippet_token: str | None = None
+    if anti_sel:
+        if extras:
+            if len(extras) > 1:
+                sys.stderr.write("Error: Too many argument blocks before input file; expected at most one a:b:c:.. list.\n")
+                return 1
+            snippet_token = extras[0]
+    else:
+        if extras:
+            sys.stderr.write("Error: Unexpected positional arguments before input file\n")
+            return 1
+
+    if snippet_token:
+        parts = [p.strip() for p in snippet_token.split(":")]
+        if any(p == "" for p in parts):
+            sys.stderr.write("Error: Anti-emulation args must not contain empty segments\n")
+            return 1
+        snippet_args = parts
+    else:
+        snippet_args = []
 
     try:
         data = read_file(filename)
@@ -182,7 +175,7 @@ def main(argv: List[str]) -> int:
 
     # Bare-bytes default mode: only input filename provided (no selections, no yaml flag)
     only_filename = (
-        yaml_path_arg is None and enc_idx is None and comp_idx is None and env_idx is None and sleep_sel is None
+        yaml_path_arg is None and enc_idx is None and comp_idx is None and env_idx is None and anti_sel is None
     )
     if only_filename:
         sys.stdout.write(make_c_array("code_blob", data, term_width))
@@ -213,21 +206,12 @@ def main(argv: List[str]) -> int:
         env_idx = cat.default_index("envelopes")
 
     # Sleep selection validation (optional)
-    sleep_spec = None
-    if sleep_sel is not None:
-        sleep_spec = cat.find_sleep(sleep_sel)
-        if not sleep_spec:
-            sys.stderr.write("Error: Unknown sleep method. Use -h to list.\n")
+    anti_spec = None
+    if anti_sel is not None:
+        anti_spec = cat.find_anti_emulation(anti_sel)
+        if not anti_spec:
+            sys.stderr.write("Error: Unknown anti-emulation method. Use -h to list.\n")
             return 1
-        if sleep_duration is None:
-            # Default ~3 seconds depending on method type
-            name = str(sleep_spec.get("name", "")).lower()
-            if name in ("thread_ms", "portable_ms"):
-                sleep_duration = 3000
-            elif name == "burn":
-                sleep_duration = 3000
-            else:  # spin or others
-                sleep_duration = 100000000
 
     # 1) compression
     try:
@@ -282,39 +266,36 @@ def main(argv: List[str]) -> int:
     sys.stdout.write(make_len_var("code_blob_expected", len(data)))
 
     # ---- Emit envelope or encoded bytes ----
-    sleep_ctx: Dict[str, Any] = {"SLEEP_SNIPPET": ""}
-    if sleep_spec:
-        raw = sleep_spec.get("cpp_snippet", "")
-        arg_names = sleep_spec.get("args", []) or []
-        # Build context for formatting: always inject through {SLEEP_SNIPPET}
-        ctx_sleep: Dict[str, Any] = {"PAYLOAD_LEN": "code_blob_len"}
-        # Map provided --args positionally to declared arg names
+    anti_ctx: Dict[str, Any] = {"ANTI-EMULATION-SNIPPET": ""}
+    if anti_spec:
+        raw = anti_spec.get("cpp_snippet", "")
+        arg_names = anti_spec.get("args", []) or []
+        # Build context for formatting: always inject through {ANTI-EMULATION-SNIPPET}
+        ctx_anti: Dict[str, Any] = {"PAYLOAD_LEN": "code_blob_len"}
         if arg_names:
-            if not snippet_args or len(snippet_args) < len(arg_names):
-                # Special-case a single 'duration' arg: allow old positional -s <method> <n>
-                if len(arg_names) == 1 and str(arg_names[0]).lower() == "duration" and sleep_duration is not None:
-                    ctx_sleep["duration"] = sleep_duration
+            if len(snippet_args) < len(arg_names):
+                if len(arg_names) == 1 and not snippet_args and str(arg_names[0]).lower() == "duration":
+                    ctx_anti["duration"] = "3000"
                 else:
-                    sys.stderr.write(
-                        f"Error: --args must supply {len(arg_names)} value(s) for snippet '{sleep_spec.get('name','')}'.\n"
-                    )
+                    sys.stderr.write(f"Error: anti-emulation '{anti_spec.get('name','')}' expects {len(arg_names)} argument(s); provide them as a:b:c:.. before the input file.\n")
                     return 1
-            else:
-                for i_pl, pl_name in enumerate(arg_names):
-                    ctx_sleep[pl_name] = snippet_args[i_pl]
+            elif len(snippet_args) > len(arg_names):
+                sys.stderr.write(f"Error: anti-emulation '{anti_spec.get('name','')}' expects {len(arg_names)} argument(s); got {len(snippet_args)}.\n")
+                return 1
+            for name, value in zip(arg_names, snippet_args):
+                ctx_anti[name] = value
         else:
-            # No declared args; still allow legacy numeric duration if user passed it
-            if sleep_duration is not None:
-                ctx_sleep["duration"] = sleep_duration
-        # Default duration fallback if required placeholder exists but not supplied
-        if any(str(n).lower() == "duration" for n in arg_names) and "duration" not in ctx_sleep:
-            ctx_sleep["duration"] = 3000
+            if snippet_args:
+                sys.stderr.write(f"Error: anti-emulation '{anti_spec.get('name','')}' does not take arguments.\n")
+                return 1
+        if any(str(n).lower() == "duration" for n in arg_names) and "duration" not in ctx_anti:
+            ctx_anti["duration"] = "3000"
         try:
-            sleep_code = safe_format_cpp(raw, ctx_sleep)
+            anti_code = safe_format_cpp(raw, ctx_anti)
         except KeyError as e:
-            sys.stderr.write(f"Error: Sleep snippet missing placeholder: {e}\n")
+            sys.stderr.write(f"Error: Anti-emulation snippet missing placeholder: {e}\n")
             return 1
-        sleep_ctx["SLEEP_SNIPPET"] = sleep_code
+        anti_ctx["ANTI-EMULATION-SNIPPET"] = anti_code
 
     if env_name == "none":
         # No envelope: emit encoded bytes directly as enc_buf/enc_len
@@ -326,7 +307,7 @@ def main(argv: List[str]) -> int:
         sys.stdout.write(make_len_var("code_blob_text", len(envelope_text)))
         sys.stdout.write("\n// ---- inline envelope decode ----\n")
         env_cpp = env_spec["cpp_decode"]
-        sys.stdout.write(safe_format_cpp(env_cpp, sleep_ctx))
+        sys.stdout.write(safe_format_cpp(env_cpp, anti_ctx))
 
     # 3b) ENCODER inverse C++ (turn enc_buf -> comp_buf)
     enc_name = enc_spec["name"].lower()
@@ -343,8 +324,8 @@ for (unsigned int i = 0; i < enc_len; ++i) comp_buf[i] = enc_buf[i];
         for k in keys_dict:
             ctx[k] = k
             ctx[f"{k}_len"] = f"{k}_len"
-        # include sleep snippet if present
-        ctx.update(sleep_ctx)
+        # include anti-emulation snippet if present
+        ctx.update(anti_ctx)
         sys.stdout.write("\n// ---- inline inverse encoding ----\n")
         try:
             sys.stdout.write(safe_format_cpp(inv_cpp, ctx))
@@ -361,7 +342,7 @@ for (unsigned int i = 0; i < enc_len; ++i) comp_buf[i] = enc_buf[i];
         var = arr["var"]
         ctx[var] = var
         ctx[f"{var}_len"] = f"{var}_len"
-    ctx.update(sleep_ctx)
+    ctx.update(anti_ctx)
     sys.stdout.write("\n// ---- inline decompression ----\n")
     try:
         sys.stdout.write(safe_format_cpp(decomp_cpp, ctx))
@@ -373,5 +354,5 @@ for (unsigned int i = 0; i < enc_len; ++i) comp_buf[i] = enc_buf[i];
         "\n// code_blob now holds the original binary bytes; length = code_blob_len\n"
     )
 
-    # No appended snippet emission; all snippets are injected via {SLEEP_SNIPPET}
+    # No appended snippet emission; all snippets are injected via {ANTI-EMULATION-SNIPPET}
     return 0

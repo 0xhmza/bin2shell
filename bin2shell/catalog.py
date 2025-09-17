@@ -16,7 +16,7 @@ class Catalog:
         self.compressors: Dict[int, Dict[str, Any]] = {}
         self.encoders: Dict[int, Dict[str, Any]] = {}
         self.envelopes: Dict[int, Dict[str, Any]] = {}
-        self.sleeps: Dict[int, Dict[str, Any]] = {}
+        self.anti_emulation: Dict[int, Dict[str, Any]] = {}
         self._validate_and_index()
 
     def _require_list(self, key: str) -> List[Dict[str, Any]]:
@@ -75,14 +75,14 @@ class Catalog:
         self.encoders = self._validate_block("encoders", encs)
         self.envelopes = self._validate_block("envelopes", envs)
 
-        # Optional: sleep snippets
-        sleeps = self.y.get("sleeps")
-        if sleeps is not None:
-            if not isinstance(sleeps, list):
-                raise ValueError("YAML error: top-level 'sleeps' must be a list if provided")
+        # Optional: anti-emulation snippets
+        anti_emulations = self.y.get("anti-emulation")
+        if anti_emulations is not None:
+            if not isinstance(anti_emulations, list):
+                raise ValueError("YAML error: top-level 'anti-emulation' must be a list if provided")
             by_idx: Dict[int, Dict[str, Any]] = {}
             seen_names: set[str] = set()
-            for i, spec in enumerate(sleeps, 1):
+            for i, spec in enumerate(anti_emulations, 1):
                 # Be tolerant here to avoid breaking help if an entry is malformed
                 if not isinstance(spec, dict):
                     continue
@@ -100,14 +100,14 @@ class Catalog:
                     continue
                 by_idx[idx] = spec
                 seen_names.add(name)
-            self.sleeps = by_idx
+            self.anti_emulation = by_idx
 
     def list_block(self, block: str) -> List[Dict[str, Any]]:
         table = {
             "compressors": self.compressors,
             "encoders": self.encoders,
             "envelopes": self.envelopes,
-            "sleeps": self.sleeps,
+            "anti-emulation": self.anti_emulation,
         }[block]
         return [table[i] for i in sorted(table.keys())]
 
@@ -116,28 +116,28 @@ class Catalog:
             "compressors": self.compressors,
             "encoders": self.encoders,
             "envelopes": self.envelopes,
-            "sleeps": self.sleeps,
+            "anti-emulation": self.anti_emulation,
         }[block]
         return min(table.keys())
 
-    def find_sleep(self, sel: str | int | None) -> Dict[str, Any] | None:
+    def find_anti_emulation(self, sel: str | int | None) -> Dict[str, Any] | None:
         if not sel:
             return None
         if isinstance(sel, int):
-            return self.sleeps.get(sel)
+            return self.anti_emulation.get(sel)
         # accept name (case-insensitive)
         low = sel.lower()
-        for spec in self.sleeps.values():
+        for spec in self.anti_emulation.values():
             if spec.get("name", "").lower() == low:
                 return spec
         # try numeric string
         try:
             idx = int(sel)
-            return self.sleeps.get(idx)
+            return self.anti_emulation.get(idx)
         except Exception:
             return None
 
-    # Stubs merged into sleeps; no separate finder
+    # Stubs merged into anti-emulation; no separate finder
 
     @staticmethod
     def _exec_snippet(snippet: str, symbol_name: str, inject: Dict[str, Any]) -> Any:
