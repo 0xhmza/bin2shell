@@ -1,20 +1,16 @@
 # bin2shell
 
-**bin2shell** generates C/C++ source that reconstructs a flat binary at runtime.  
-It implements a forward pipeline in Python (what you configure) that is reversed by the emitted C/C++ (what runs at runtime):
+**bin2shell** takes a flat binary as an input and generates C/C++ source that reconstructs the flat binary at runtime.  
 
-**Pipeline (Python → emitted C/C++ reversed):**
-1. **Compression** — produce compact bytes and optional dictionaries.  
-2. **Encoding** — reversible transform, optionally keyed (e.g., XOR, ARX).  
-3. **Envelope** — render bytes as printable text for embedding (e.g., Base91, Base64).
+You can optionally compress, encode and envelope the binary's binary code. You can also add some anti-emulation techniques. 
 
-All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible** — add or modify encoders, compressors, envelopes, and sleep/obfuscation snippets without changing the core script.
+All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible** — add or modify encoders, compressors, envelopes, and anti-emulation snippets without changing the core script.
 
 ---
 
 ## Usage
 ```bash
-python main.py [-y <yaml>] [-e <enc_idx>] [-c <comp_idx>] [-env <env_idx>] [-s <method>] [--args a:b[:c]] <file>
+python main.py [-y <yaml>] [-e <enc_idx>]  [-c <comp_idx>]  [-env <env_idx>] [-ae <method>] [a:b:c:..] <file>
 ```
 
 ## Options
@@ -26,9 +22,9 @@ python main.py [-y <yaml>] [-e <enc_idx>] [-c <comp_idx>] [-env <env_idx>] [-s <
   Compressor index.
 - `-env, --envelop <idx>`  
   Envelope index.
-- `-s, --sleep <method>`  
-  Select a YAML snippet under the `sleeps` section. Inserted into the emitted code as `{SLEEP_SNIPPET}`.
-- `--args a:b[:c]`  
+- `-ae, --entiemulation <method>`  
+  Select a YAML snippet under the `anti-emulation` section. Inserted into the emitted code as `{ANTI-EMULATION-SNIPPET}`.
+- `[a:b:c:..]`  
   Colon-separated arguments for the selected YAML snippet (must match the snippet's declared `args`).
 - `-h, --help`  
   Show help.
