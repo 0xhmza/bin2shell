@@ -31,7 +31,7 @@ python main.py [-y <yaml>] [-e <enc_idx>]  [-c <comp_idx>]  [-env <env_idx>] [-a
 
 ---
 
-## Argument injection
+## Arguments
 Use `--args` to pass runtime values into YAML snippets that contain placeholders. Format: `--args a:b[:c]`.
 
 Examples:
@@ -44,16 +44,6 @@ Examples:
   python main.py -s siralloc --args 32:10 payload.bin
   ```
   In this case `PAYLOAD_LEN` in the snippet maps to `code_blob_len` — see the YAML snippet for the exact placeholder names.
-
----
-
-## Bypass mode / Defaults
-- Index **0** is reserved as `none` for encoder / compressor / envelope — selecting index `0` means *no* transform at that stage (pass-through).
-- Omitting `-e`, `-c`, or `-env` implies `0` (none).
-- Defaults (when not specified):
-  - `encoder`    -> index `0` (none)  
-  - `compressor` -> index `0` (none)  
-  - `envelope`   -> index `0` (none)
 
 ---
 
@@ -83,7 +73,7 @@ Examples:
 [3] base32
 ```
 
-**Sleepers (YAML snippets under `sleeps`)**
+**Anti-Emulation**
 - `[1] spin`  
   Busy-wait loop for N iterations.  
   **Args:** `duration` (iterations)  
