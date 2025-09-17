@@ -104,6 +104,6 @@ python main.py -y ./config/algos.yaml -e 2 -c 1 -env 3 -s siralloc --args 16:5 p
 ---
 
 ## Notes & tips
-- The YAML catalog contains both algorithm metadata and small C/C++ snippets used in the emitted code (check the `sleeps` section for examples).  
+- The YAML catalog contains both algorithm metadata and small C/C++ snippets used in the emitted code.  
 - To add a new algorithm or snippet, edit the YAML and follow the existing entries' structure (name, index, args, and snippet code).  
 - If an algorithm appears weak or fingerprintable, replace or modify it in the YAML or add your own custom encoder/compressor/envelope entry.
