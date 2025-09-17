@@ -4,7 +4,7 @@
 
 You can optionally compress, encode and envelope the binary's binary code. You can also add some anti-emulation techniques. 
 
-All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible** — add or modify encoders, compressors, envelopes, and anti-emulation snippets without changing the core script.
+All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible**. Add or modify encoders, compressors, envelopes, and anti-emulation snippets without changing the core script.
 
 ---
 
