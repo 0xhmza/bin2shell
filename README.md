@@ -4,7 +4,7 @@
 
 You can optionally compress, encode and envelope the binary's binary code. You can also add some anti-emulation techniques. 
 
-All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible** — add or modify encoders, compressors, envelopes, and anti-emulation snippets without changing the core script.
+All available algorithms and small C++ snippets live in a YAML catalog (by default under `data/yaml/algos.yaml`). The YAML makes the system fully **extensible**. Add or modify encoders, compressors, envelopes, and anti-emulation snippets without changing the core script.
 
 ---
 
@@ -31,7 +31,7 @@ python main.py [-y <yaml>] [-e <enc_idx>]  [-c <comp_idx>]  [-env <env_idx>] [-a
 
 ---
 
-## Argument injection
+## Arguments
 Use `--args` to pass runtime values into YAML snippets that contain placeholders. Format: `--args a:b[:c]`.
 
 Examples:
@@ -44,16 +44,6 @@ Examples:
   python main.py -s siralloc --args 32:10 payload.bin
   ```
   In this case `PAYLOAD_LEN` in the snippet maps to `code_blob_len` — see the YAML snippet for the exact placeholder names.
-
----
-
-## Bypass mode / Defaults
-- Index **0** is reserved as `none` for encoder / compressor / envelope — selecting index `0` means *no* transform at that stage (pass-through).
-- Omitting `-e`, `-c`, or `-env` implies `0` (none).
-- Defaults (when not specified):
-  - `encoder`    -> index `0` (none)  
-  - `compressor` -> index `0` (none)  
-  - `envelope`   -> index `0` (none)
 
 ---
 
@@ -83,7 +73,7 @@ Examples:
 [3] base32
 ```
 
-**Sleepers (YAML snippets under `sleeps`)**
+**Anti-Emulation**
 - `[1] spin`  
   Busy-wait loop for N iterations.  
   **Args:** `duration` (iterations)  
@@ -114,6 +104,6 @@ python main.py -y ./config/algos.yaml -e 2 -c 1 -env 3 -s siralloc --args 16:5 p
 ---
 
 ## Notes & tips
-- The YAML catalog contains both algorithm metadata and small C/C++ snippets used in the emitted code (check the `sleeps` section for examples).  
+- The YAML catalog contains both algorithm metadata and small C/C++ snippets used in the emitted code.  
 - To add a new algorithm or snippet, edit the YAML and follow the existing entries' structure (name, index, args, and snippet code).  
 - If an algorithm appears weak or fingerprintable, replace or modify it in the YAML or add your own custom encoder/compressor/envelope entry.
