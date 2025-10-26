@@ -36,17 +36,14 @@ def print_dynamic_help(
     # Usage and options next
     out.append("Usage:")
     out.append(
-        f"  {exe} [-y <yaml>] [-e <enc_idx>] [-c <comp_idx>] [-env <env_idx>] [-ae <method>] [a:b:c:..] <file>\n"
+        f"  {exe} [-y <yaml>] [-e <enc_idx>] [-env <env_idx>] <file>\n"
     )
     out.append("Options:")
     out.append(
         f"  -y,   --yaml <path>         Path to algorithms YAML (default: {default_yaml_rel})"
     )
     out.append("  -e,   --encoding <idx>      Encoder index")
-    out.append("  -c,   --compression <idx>   Compressor index")
     out.append("  -env, --envelop <idx>       Envelope index")
-    out.append("  -ae,  --entiemulation <method> Select a YAML snippet under 'anti-emulation' and inject via {ANTI-EMULATION-SNIPPET}.")
-    out.append("        [a:b:c:..]            Colon-separated args for the selected snippet (matches YAML 'args').")
     out.append("  -h,   --help                Show this help")
     out.append("")
 
@@ -54,14 +51,9 @@ def print_dynamic_help(
     if cat is not None:
         out.append("Available From YAML:")
         _print_block_table(out, "Encoders", cat.list_block("encoders"), "cpp_inverse")
-        _print_block_table(out, "Compressors", cat.list_block("compressors"), "cpp_decompress")
         _print_block_table(out, "Envelopes", cat.list_block("envelopes"), "cpp_decode")
-        anti_snippets = cat.list_block("anti-emulation") if getattr(cat, "anti_emulation", None) else []
-        if anti_snippets:
-            _print_block_table(out, "Anti-Emulation", anti_snippets, "cpp_snippet", show_args=True)
         out.append("Defaults (if not specified):")
         out.append(f"  encoder    -> index {cat.default_index('encoders')}")
-        out.append(f"  compressor -> index {cat.default_index('compressors')}")
         out.append(f"  envelope   -> index {cat.default_index('envelopes')}")
     else:
         # Provide a helpful pointer about the default location that was tried
@@ -85,34 +77,14 @@ def _overview_lines(default_yaml_rel: str) -> list[str]:
     lines: list[str] = []
     lines.append("Overview:")
     lines.append("  Purpose: generate C/C++ that reconstructs an input binary at runtime.")
-    lines.append(
-        "  Pipeline (forward in Python, reversed in emitted C++):"
-    )
-    lines.append(
-        "    - Compression: produce compact bytes and optional dictionaries."
-    )
-    lines.append(
-        "    - Encoding: reversible transform using optional keys (e.g., XOR/ARX)."
-    )
-    lines.append(
-        "    - Envelope: render bytes to printable text (e.g., Base91/Base64)."
-    )
-    lines.append(
-        "  YAML-driven: algorithms and C++ snippets live in the catalog (see 'anti-emulation')."
-    )
-    lines.append("")
-    lines.append("Argument injection:")
-    lines.append("  Provide a:b:c:.. args for anti-emulation snippets when required, e.g.,")
-    lines.append("    - Spin delay: -ae spin 3000")
-    lines.append("    - Siralloc stress: -ae siralloc 32:10 (PAYLOAD_LEN maps to code_blob_len)")
+    lines.append("  Pipeline (forward in Python, reversed in emitted C++):")
+    lines.append("    - Encoding: reversible transform using optional keys (e.g., XOR/ARX).")
+    lines.append("    - Envelope: render bytes to printable text (e.g., Base91/Base64).")
+    lines.append("  YAML-driven: algorithms and C++ snippets live in the catalog (encoders + envelopes).")
     lines.append("")
     lines.append("Bypass mode:")
-    lines.append(
-        "  Index 0 is reserved for 'none' across encoder/compressor/envelope."
-    )
-    lines.append(
-        "  Omitting -e/-c/-env implies 0 (none)."
-    )
+    lines.append("  Index 0 is reserved for 'none' across encoder/envelope.")
+    lines.append("  Omitting -e/-env implies 0 (none).")
     lines.append(
         f"  Default YAML location: {default_yaml_rel} (relative to cwd), override with -y."
     )

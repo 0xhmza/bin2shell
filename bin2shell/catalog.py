@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Tuple
 
 
 REQUIRED_FIELDS = {
-    "compressors": ["name", "index", "python_snippet", "cpp_decompress"],
     "encoders": ["name", "index", "python_snippet", "cpp_inverse"],
     "envelopes": ["name", "index", "python_snippet", "cpp_decode"],
 }
@@ -13,10 +12,8 @@ REQUIRED_FIELDS = {
 class Catalog:
     def __init__(self, y: Dict[str, Any]):
         self.y = y or {}
-        self.compressors: Dict[int, Dict[str, Any]] = {}
         self.encoders: Dict[int, Dict[str, Any]] = {}
         self.envelopes: Dict[int, Dict[str, Any]] = {}
-        self.anti_emulation: Dict[int, Dict[str, Any]] = {}
         self._validate_and_index()
 
     def _require_list(self, key: str) -> List[Dict[str, Any]]:
@@ -67,77 +64,25 @@ class Catalog:
         return by_idx
 
     def _validate_and_index(self) -> None:
-        comps = self._require_list("compressors")
         encs = self._require_list("encoders")
         envs = self._require_list("envelopes")
 
-        self.compressors = self._validate_block("compressors", comps)
         self.encoders = self._validate_block("encoders", encs)
         self.envelopes = self._validate_block("envelopes", envs)
 
-        # Optional: anti-emulation snippets
-        anti_emulations = self.y.get("anti-emulation")
-        if anti_emulations is not None:
-            if not isinstance(anti_emulations, list):
-                raise ValueError("YAML error: top-level 'anti-emulation' must be a list if provided")
-            by_idx: Dict[int, Dict[str, Any]] = {}
-            seen_names: set[str] = set()
-            for i, spec in enumerate(anti_emulations, 1):
-                # Be tolerant here to avoid breaking help if an entry is malformed
-                if not isinstance(spec, dict):
-                    continue
-                if any(k not in spec for k in ("name", "index", "cpp_snippet")):
-                    continue
-                name = spec["name"]
-                idx = spec["index"]
-                if not isinstance(name, str) or not name:
-                    continue
-                if not isinstance(idx, int) or idx < 0:
-                    continue
-                if name in seen_names or idx in by_idx:
-                    continue
-                if not isinstance(spec["cpp_snippet"], str) or not spec["cpp_snippet"].strip():
-                    continue
-                by_idx[idx] = spec
-                seen_names.add(name)
-            self.anti_emulation = by_idx
-
     def list_block(self, block: str) -> List[Dict[str, Any]]:
         table = {
-            "compressors": self.compressors,
             "encoders": self.encoders,
             "envelopes": self.envelopes,
-            "anti-emulation": self.anti_emulation,
         }[block]
         return [table[i] for i in sorted(table.keys())]
 
     def default_index(self, block: str) -> int:
         table = {
-            "compressors": self.compressors,
             "encoders": self.encoders,
             "envelopes": self.envelopes,
-            "anti-emulation": self.anti_emulation,
         }[block]
         return min(table.keys())
-
-    def find_anti_emulation(self, sel: str | int | None) -> Dict[str, Any] | None:
-        if not sel:
-            return None
-        if isinstance(sel, int):
-            return self.anti_emulation.get(sel)
-        # accept name (case-insensitive)
-        low = sel.lower()
-        for spec in self.anti_emulation.values():
-            if spec.get("name", "").lower() == low:
-                return spec
-        # try numeric string
-        try:
-            idx = int(sel)
-            return self.anti_emulation.get(idx)
-        except Exception:
-            return None
-
-    # Stubs merged into anti-emulation; no separate finder
 
     @staticmethod
     def _exec_snippet(snippet: str, symbol_name: str, inject: Dict[str, Any]) -> Any:
@@ -158,20 +103,6 @@ class Catalog:
             raise RuntimeError("gen_keys() must return dict[str, bytes]")
         return keys
 
-    def run_compress(
-        self, idx: int, data: bytes
-    ) -> Tuple[bytes, Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-        spec = self.compressors.get(idx)
-        if not spec:
-            raise RuntimeError(f"Unknown compressor index '{idx}'")
-        compress = self._exec_snippet(spec["python_snippet"], "compress", {})
-        comp_bytes, meta = compress(data)
-        if not isinstance(comp_bytes, (bytes, bytearray)):
-            raise RuntimeError("compress() must return bytes as first element")
-        if not isinstance(meta, dict):
-            raise RuntimeError("compress() must return dict as second element")
-        emit = spec.get("emit", {})
-        return bytes(comp_bytes), meta, emit, spec
 
     def run_encode(
         self, idx: int, data: bytes

