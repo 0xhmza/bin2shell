@@ -1,0 +1,372 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>bin2shell test report</title>
+<style>
+body { font-family: Arial, Helvetica, sans-serif; margin: 20px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; }
+th { background: #f2f2f2; }
+pre { margin: 0; white-space: pre-wrap; }
+.status-ok { color: #146c2e; font-weight: bold; }
+.status-err { color: #a40000; font-weight: bold; }
+.status-skip { color: #666666; font-weight: bold; }
+</style>
+</head>
+<body>
+<h1>bin2shell test report</h1>
+<p>Generated: 2026-01-21T15:05:43</p>
+<p>Input: C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</p>
+<p>YAML: C:\Users\hamza\Documents\GitHub\bin2shell\data\yaml\algos.yaml</p>
+<p>Compiler: C:\Strawberry\c\bin\g++.EXE</p>
+<p>Totals: 30 cases, 0 main errors, 0 compile errors, 0 compile skipped, 30 compile OK</p>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Mode</th>
+<th>Encoder</th>
+<th>Envelope</th>
+<th>Arguments</th>
+<th>Main</th>
+<th>Compile</th>
+<th>Main Error</th>
+<th>Compile Error</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>simple</td>
+<td>none</td>
+<td>none</td>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>0:none</td>
+<td>0:none</td>
+<td>--encoding 0 --envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>0:none</td>
+<td>1:base91</td>
+<td>--encoding 0 --envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>0:none</td>
+<td>2:base64</td>
+<td>--encoding 0 --envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>0:none</td>
+<td>3:base32</td>
+<td>--encoding 0 --envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>1:xor</td>
+<td>0:none</td>
+<td>--encoding 1 --envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>1:xor</td>
+<td>1:base91</td>
+<td>--encoding 1 --envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>1:xor</td>
+<td>2:base64</td>
+<td>--encoding 1 --envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>1:xor</td>
+<td>3:base32</td>
+<td>--encoding 1 --envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>2:xor2</td>
+<td>0:none</td>
+<td>--encoding 2 --envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>2:xor2</td>
+<td>1:base91</td>
+<td>--encoding 2 --envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>2:xor2</td>
+<td>2:base64</td>
+<td>--encoding 2 --envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>2:xor2</td>
+<td>3:base32</td>
+<td>--encoding 2 --envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>3:arx8</td>
+<td>0:none</td>
+<td>--encoding 3 --envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>3:arx8</td>
+<td>1:base91</td>
+<td>--encoding 3 --envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>3:arx8</td>
+<td>2:base64</td>
+<td>--encoding 3 --envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>3:arx8</td>
+<td>3:base32</td>
+<td>--encoding 3 --envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>4:arx82</td>
+<td>0:none</td>
+<td>--encoding 4 --envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>4:arx82</td>
+<td>1:base91</td>
+<td>--encoding 4 --envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>4:arx82</td>
+<td>2:base64</td>
+<td>--encoding 4 --envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog</td>
+<td>4:arx82</td>
+<td>3:base32</td>
+<td>--encoding 4 --envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-env</td>
+<td>0:none</td>
+<td>0:none</td>
+<td>--encoding 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-env</td>
+<td>1:xor</td>
+<td>0:none</td>
+<td>--encoding 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-env</td>
+<td>2:xor2</td>
+<td>0:none</td>
+<td>--encoding 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-env</td>
+<td>3:arx8</td>
+<td>0:none</td>
+<td>--encoding 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-env</td>
+<td>4:arx82</td>
+<td>0:none</td>
+<td>--encoding 4 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-enc</td>
+<td>0:none</td>
+<td>0:none</td>
+<td>--envelope 0 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-enc</td>
+<td>0:none</td>
+<td>1:base91</td>
+<td>--envelope 1 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-enc</td>
+<td>0:none</td>
+<td>2:base64</td>
+<td>--envelope 2 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+<tr>
+<td>C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td>catalog-default-enc</td>
+<td>0:none</td>
+<td>3:base32</td>
+<td>--envelope 3 C:\Users\hamza\Documents\GitHub\bin2shell\messagebox.bin</td>
+<td><span class="status-ok">OK</span></td>
+<td><span class="status-ok">OK</span></td>
+<td><pre></pre></td>
+<td><pre></pre></td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

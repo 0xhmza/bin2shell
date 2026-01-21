@@ -285,6 +285,32 @@ def _make_web_len_block(name: str, value: int, payload_name: str, literal: bool)
     )
 
 
+def _indent_block(text: str, indent: str) -> str:
+    if not text:
+        return ""
+    lines = text.splitlines(True)
+    return "".join(indent + line for line in lines)
+
+
+def _raw_wrapper_start() -> str:
+    return (
+        "\nstruct Bin2ShellPayload {\n"
+        "    unsigned char* code_blob;\n"
+        "    unsigned int code_blob_len;\n"
+        "};\n\n"
+        "static Bin2ShellPayload bin2shell_payload = []() {\n"
+    )
+
+
+def _raw_wrapper_end() -> str:
+    return (
+        "\n    return Bin2ShellPayload{code_blob, code_blob_len};\n"
+        "}();\n\n"
+        "unsigned char* code_blob = bin2shell_payload.code_blob;\n"
+        "unsigned int code_blob_len = bin2shell_payload.code_blob_len;\n"
+    )
+
+
 def _render_sections(
     sections: Iterable[Section],
     web_mode: bool,
@@ -295,11 +321,18 @@ def _render_sections(
     web_payload_arrays: Set[str] = set()
     web_payload_strings: Set[str] = set()
     helpers_injected = False
+    raw_open = False
     for section in sections:
         meta = section.meta
         if section.kind == "array":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             chunks.append(make_c_array(meta["name"], meta["data"], term_width))
         elif section.kind == "payload_array":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             if web_mode:
                 if not helpers_injected:
                     chunks.append(_web_fetch_helper_block())
@@ -311,8 +344,14 @@ def _render_sections(
             else:
                 chunks.append(make_c_array(meta["name"], meta["data"], term_width))
         elif section.kind == "string":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             chunks.append(make_c_bstring(meta["name"], meta["text"], term_width))
         elif section.kind == "payload_string":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             if web_mode:
                 if not helpers_injected:
                     chunks.append(_web_fetch_helper_block())
@@ -324,6 +363,9 @@ def _render_sections(
             else:
                 chunks.append(make_c_bstring(meta["name"], meta["text"], term_width))
         elif section.kind == "len_var":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             name = meta["name"]
             value = meta["value"]
             payload_name = meta.get("payload_name", name)
@@ -338,15 +380,23 @@ def _render_sections(
             else:
                 chunks.append(make_len_var(name, meta["value"]))
         elif section.kind == "len_literal":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
             payload_name = meta.get("payload_name")
             if web_mode and payload_name in web_payload_arrays:
                 chunks.append(_make_web_len_block(meta["name"], meta["value"], payload_name, literal=True))
             else:
                 chunks.append(f"unsigned int {meta['name']} = {meta['value']};\n")
         elif section.kind == "raw":
-            chunks.append(meta.get("text", ""))
+            if not raw_open:
+                chunks.append(_raw_wrapper_start())
+                raw_open = True
+            chunks.append(_indent_block(meta.get("text", ""), "    "))
         else:
             raise CLIError(f"Unsupported section type '{section.kind}'")
+    if raw_open:
+        chunks.append(_raw_wrapper_end())
     return "".join(chunks)
 
 

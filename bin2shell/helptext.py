@@ -35,23 +35,26 @@ def print_dynamic_help(
 
     # Usage and options next
     out.append("Usage:")
-    out.append(
-        f"  {exe} [-y <yaml>] [-e <enc_idx>] [-env <env_idx>] <file>\n"
-    )
+    out.append(f"  {exe} [options] <input_file>")
+    out.append("")
+    out.append("Arguments:")
+    out.append("  input_file                 Path to the input binary file")
+    out.append("")
     out.append("Options:")
     out.append(
-        f"  -y,   --yaml <path>         Path to algorithms YAML (default: {default_yaml_rel})"
+        f"  -y, --yaml <yaml_path>             Path to algorithms YAML (default: {default_yaml_rel})"
     )
-    out.append("  -e,   --encoding <idx>      Encoder index")
-    out.append("  -env, --envelop <idx>       Envelope index")
-    out.append("  -h,   --help                Show this help")
+    out.append("  -e, --encoding <encoder_index>     Encoder index")
+    out.append("  -env, --envelope <envelope_index>  Envelope index (alias: --envelop)")
+    out.append("  -w, --web                          Emit YAML bundle with web-fetch C++ template")
+    out.append("  -h, --help                         Show this help")
     out.append("")
 
     # Available algorithms from YAML (defaulted when -y not given)
     if cat is not None:
         out.append("Available From YAML:")
-        _print_block_table(out, "Encoders", cat.list_block("encoders"), "cpp_inverse")
-        _print_block_table(out, "Envelopes", cat.list_block("envelopes"), "cpp_decode")
+        _print_block_table(out, "Encoders", cat.list_block("encoders"), "cpp_inverse", show_args=True)
+        _print_block_table(out, "Envelopes", cat.list_block("envelopes"), "cpp_decode", show_args=True)
         out.append("Defaults (if not specified):")
         out.append(f"  encoder    -> index {cat.default_index('encoders')}")
         out.append(f"  envelope   -> index {cat.default_index('envelopes')}")
@@ -81,6 +84,7 @@ def _overview_lines(default_yaml_rel: str) -> list[str]:
     lines.append("    - Encoding: reversible transform using optional keys (e.g., XOR/ARX).")
     lines.append("    - Envelope: render bytes to printable text (e.g., Base91/Base64).")
     lines.append("  YAML-driven: algorithms and C++ snippets live in the catalog (encoders + envelopes).")
+    lines.append("  Web bundle: -w emits a YAML package with a C++ web-fetch template and payload metadata.")
     lines.append("")
     lines.append("Bypass mode:")
     lines.append("  Index 0 is reserved for 'none' across encoder/envelope.")

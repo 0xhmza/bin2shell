@@ -1,69 +1,95 @@
 # bin2shell
 
-**bin2shell** takes a flat binary as input and generates C/C++ source that reconstructs it at runtime.
+bin2shell converts a flat binary into C/C++ source that reconstructs the bytes at runtime. It can optionally
+encode the data and wrap it in a printable envelope, and it can emit a YAML bundle for web fetch scenarios.
 
-You can optionally encode the bytes and wrap them in an envelope (for example Base91 or Base64) before embedding. The YAML catalog (default `data/yaml/algos.yaml`) keeps the system extensible: add or modify encoders and envelopes without touching the Python.
+## Requirements
+- Python 3.10+
+- PyYAML (`pip install pyyaml`)
 
----
+## How it works
+1. Encode (optional): reversible transform using per-run keys (XOR/ARX).
+2. Envelope (optional): render bytes as printable text (Base91/Base64/Base32).
+3. Emit C++ that reverses the pipeline and exposes `code_blob` and `code_blob_len`.
 
-## Usage
-```bash
-python main.py [-y <yaml>] [-e <enc_idx>] [-env <env_idx>] <file>
+Encoders and envelopes are defined in `data/yaml/algos.yaml`. Each entry includes a Python snippet for the
+forward transform and a matching C++ snippet for the inverse/decode.
+
+## CLI reference
+```text
+Usage:
+  python main.py [options] <input_file>
+
+Arguments:
+  input_file                 Path to the input binary file.
+
+Options:
+  -y, --yaml <yaml_path>             Path to algorithms YAML (default: data/yaml/algos.yaml)
+  -e, --encoding <encoder_index>     Encoder index
+  -env, --envelope <envelope_index>  Envelope index (alias: --envelop)
+  -w, --web                          Emit YAML bundle with web-fetch C++ template
+  -h, --help                         Show help and list available algorithms
 ```
 
-## Options
-- `-y, --yaml <path>`  
-  Path to the algorithms YAML (default: `data\yaml\algos.yaml` relative to the current working directory).
-- `-e, --encoding <idx>`  
-  Encoder index (see the catalog listing below).
-- `-env, --envelop <idx>`  
-  Envelope index.
-- `-h, --help`  
-  Show help.
-
----
-
-## YAML-driven catalog (default entries)
-> Index numbers come from the default YAML and line up with the CLI flags.
-
-**Encoders**
-```
-[0] none   - Pass-through
-[1] xor
-[2] xor2
-[3] arx8
-[4] arx82
-```
-
-**Envelopes**
-```
-[0] none   - Emit raw byte array
-[1] base91
-[2] base64
-[3] base32
-```
-
----
+`python main.py -h` prints the full help block and the catalog entries.
 
 ## Examples
-
-- Minimal (defaults to encoder 0 / envelope 0):
+- Minimal output (raw byte array):
 ```bash
-python main.py payload.bin
+python main.py messagebox.bin > payload.cpp
 ```
 
-- Encode with XOR and wrap in Base91:
+- XOR + Base91:
 ```bash
-python main.py -e 1 -env 1 payload.bin
+python main.py --encoding 1 --envelope 1 messagebox.bin > payload.cpp
 ```
 
-- Use a custom YAML and Base32 envelope:
+- Custom YAML:
 ```bash
-python main.py -y ./config/algos.yaml -e 2 -env 3 payload.bin
+python main.py --yaml ./config/algos.yaml --encoding 2 --envelope 3 payload.bin > payload.cpp
 ```
 
----
+- Web bundle output:
+```bash
+python main.py --web --encoding 1 --envelope 2 payload.bin > bundle.yaml
+```
 
-## Notes
-- The YAML catalog stores both metadata and C++ snippets. Edit it to swap or add encoders/envelopes.
-- If an algorithm feels weak or fingerprintable, replace it in the YAML or add your own entry.
+## Output contract (native mode)
+- `unsigned char code_blob[]` and `unsigned int code_blob_len`.
+- When an envelope is used, output includes `const char code_blob_text[]` plus inline decode logic
+  that fills `enc_buf` and `enc_len`.
+- Encoder keys are emitted as byte arrays with accompanying `<name>_len` variables.
+- The inverse encoder logic reconstructs `code_blob` from `enc_buf`.
+
+## Web bundle output
+`--web` emits YAML with the following fields:
+- `code_template`: C++ template that fetches the payload and reconstructs `code_blob`.
+- `payload`: encoded payload (text or hex, depending on envelope).
+- `payload_checksum`: SHA-256 checksum of the payload.
+- `options`: encoder/envelope metadata and the web flag.
+
+The generated template uses WinHTTP and is Windows-only.
+
+## Catalog format
+`data/yaml/algos.yaml` entries are validated at runtime.
+
+Encoders must include:
+- `name`, `index`, `python_snippet`, `cpp_inverse`
+
+Envelopes must include:
+- `name`, `index`, `python_snippet`, `cpp_decode`
+
+Optional fields:
+- `keys_snippet`: Python generator for per-run keys.
+- `emit`: metadata for downstream tooling.
+- `args`: argument names for help output.
+
+## Security note
+Python snippets from the YAML are executed. Only use catalogs from trusted sources.
+
+## Testing
+`testing.py` runs the CLI across every encoder/envelope combination and compiles the emitted C++ (object-only).
+It writes an HTML report with per-case execution and compilation errors.
+```bash
+python testing.py --out report.html
+```
