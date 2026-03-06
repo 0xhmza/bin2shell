@@ -28,5 +28,8 @@ report.html
 *.sln
 *.sln.docstates
 
+# Output
+output_snippets/
+
 # Misc
 inspect.txt

@@ -343,6 +343,10 @@ print(json.dumps(out))
         args.AddRange(["-o", outputPath]);
         args.Add(inputPath);
 
+        var outDir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
+            Directory.CreateDirectory(outDir);
+
         _btnGenerate.Enabled = false;
         SetStatus("Generating...", true);
         _txtLog.Clear();
@@ -395,6 +399,14 @@ print(json.dumps(out))
         finally { _btnGenerate.Enabled = true; }
     }
 
+    string DefaultOutputPath(string inputPath)
+    {
+        var dir = Path.Combine(_scriptDir, "output_snippets");
+        var name = Path.GetFileName(inputPath);
+        var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        return Path.Combine(dir, $"{name}_{ts}.cpp_snippet");
+    }
+
     void BrowseInput(object? s, EventArgs e)
     {
         using var dlg = new OpenFileDialog
@@ -405,8 +417,7 @@ print(json.dumps(out))
         if (dlg.ShowDialog() == DialogResult.OK)
         {
             _txtInput.Text = dlg.FileName;
-            if (string.IsNullOrWhiteSpace(_txtOutput.Text))
-                _txtOutput.Text = Path.ChangeExtension(dlg.FileName, _chkWeb.Checked ? ".yaml" : ".cpp");
+            _txtOutput.Text = DefaultOutputPath(dlg.FileName);
         }
     }
 
