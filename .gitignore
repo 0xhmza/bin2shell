@@ -1,5 +1,32 @@
+# Python
 __pycache__/
 *.pyc
-*.bin
+*.pyo
+
+# .NET
+ui/bin/
+ui/obj/
+*.user
+
+# Build outputs
+*.exe
+*.dll
+*.pdb
+
+# Test artifacts
 test/
+report.html
 *.bak
+
+# Binary payloads
+*.bin
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.sln
+*.sln.docstates
+
+# Misc
+inspect.txt

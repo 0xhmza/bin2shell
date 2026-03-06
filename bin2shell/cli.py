@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import sys
@@ -15,7 +16,6 @@ except ImportError:
 
 from .catalog import Catalog
 from .formatting import make_c_array, make_c_bstring, make_len_var, safe_format_cpp
-from .helptext import print_dynamic_help
 from .utils import get_terminal_width, read_file
 
 
@@ -232,6 +232,7 @@ class CLIArgs:
     encoder_index: Optional[int]
     envelope_index: Optional[int]
     web_mode: bool
+    output_path: Optional[str] = None
 
 
 @dataclass
@@ -410,72 +411,70 @@ def _resolve_yaml_path(provided: Optional[str]) -> str:
     return os.path.abspath(os.path.join(here, os.pardir, DEFAULT_YAML_REL))
 
 
-def _find_yaml_flag(argv: List[str]) -> Optional[str]:
-    i = 1
-    while i < len(argv):
-        token = argv[i]
-        if token in ("-y", "--yaml") and i + 1 < len(argv):
-            return argv[i + 1]
-        i += 1
-    return None
+def _catalog_epilog(yaml_path: str) -> str:
+    lines: List[str] = []
+    try:
+        if os.path.isfile(yaml_path):
+            with open(yaml_path, "r", encoding="utf-8") as fh:
+                cat = Catalog(yaml.safe_load(fh))
+            lines.append("available encoders:")
+            for spec in cat.list_block("encoders"):
+                idx = spec.get("index", "?")
+                name = spec.get("name", "")
+                desc = spec.get("desc", "")
+                lines.append(f"  [{idx}] {name}" + (f"  {desc}" if desc else ""))
+            lines.append("")
+            lines.append("available envelopes:")
+            for spec in cat.list_block("envelopes"):
+                idx = spec.get("index", "?")
+                name = spec.get("name", "")
+                desc = spec.get("desc", "")
+                lines.append(f"  [{idx}] {name}" + (f"  {desc}" if desc else ""))
+            lines.append("")
+            lines.append(f"defaults: encoder={cat.default_index('encoders')}, envelope={cat.default_index('envelopes')}")
+    except Exception:
+        lines.append(f"(could not load catalog from {yaml_path})")
+    return "\n".join(lines)
 
 
-def _wants_help(argv: List[str]) -> bool:
-    return any(arg in ("-h", "--help") for arg in argv[1:])
+def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
+    epilog = _catalog_epilog(yaml_path)
+    parser = argparse.ArgumentParser(
+        prog="bin2shell",
+        description="Convert binary files to C/C++ source that reconstructs the original bytes at runtime.",
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("input", metavar="INPUT", help="path to the input binary file")
+    parser.add_argument("-e", "--encoder", type=int, default=None, metavar="N",
+                        help="encoder index (see list below)")
+    parser.add_argument("-v", "--envelope", type=int, default=None, metavar="N",
+                        help="envelope index (see list below)")
+    parser.add_argument("-y", "--yaml", default=None, metavar="PATH",
+                        help=f"path to algorithms YAML (default: {DEFAULT_YAML_REL})")
+    parser.add_argument("-w", "--web", action="store_true",
+                        help="emit YAML bundle with web-fetch C++ template")
+    parser.add_argument("-o", "--output", default=None, metavar="FILE",
+                        help="write output to FILE instead of stdout")
+    return parser
 
 
 def _parse_args(argv: List[str]) -> CLIArgs:
-    yaml_override: Optional[str] = None
-    encoder_index: Optional[int] = None
-    envelope_index: Optional[int] = None
-    web_mode = False
-    positional: List[str] = []
-
-    i = 1
-    while i < len(argv):
-        token = argv[i]
-        if token in ("-y", "--yaml"):
-            if i + 1 >= len(argv):
-                raise CLIError("Error: -y requires a path to the YAML file")
-            yaml_override = argv[i + 1]
-            i += 2
-            continue
-        if token in ("-e", "--encoding"):
-            if i + 1 >= len(argv):
-                raise CLIError("Error: -e requires an encoder index")
-            try:
-                encoder_index = int(argv[i + 1])
-            except ValueError:
-                raise CLIError("Error: -e/--encoding must be an integer index >= 1")
-            i += 2
-            continue
-        if token in ("-env", "--envelop", "--envelope"):
-            if i + 1 >= len(argv):
-                raise CLIError("Error: -env requires an envelope index")
-            try:
-                envelope_index = int(argv[i + 1])
-            except ValueError:
-                raise CLIError("Error: -env/--envelop must be an integer index >= 1")
-            i += 2
-            continue
-        if token in ("-w", "--web"):
-            web_mode = True
-            i += 1
-            continue
-        positional.append(token)
-        i += 1
-
-    if not positional:
-        raise CLIError("Error: No input file provided")
-    if len(positional) > 1:
-        raise CLIError("Error: Unexpected positional arguments before input file")
-
+    yaml_hint = None
+    for i, tok in enumerate(argv[1:], 1):
+        if tok in ("-y", "--yaml") and i + 1 < len(argv):
+            yaml_hint = argv[i + 1]
+            break
+    yaml_path = _resolve_yaml_path(yaml_hint)
+    parser = _build_parser(yaml_path)
+    ns = parser.parse_args(argv[1:])
     return CLIArgs(
-        input_path=positional[0],
-        yaml_override=yaml_override,
-        encoder_index=encoder_index,
-        envelope_index=envelope_index,
-        web_mode=web_mode,
+        input_path=ns.input,
+        yaml_override=ns.yaml,
+        encoder_index=ns.encoder,
+        envelope_index=ns.envelope,
+        web_mode=ns.web,
+        output_path=ns.output,
     )
 
 
@@ -651,31 +650,6 @@ def _emit_native(context: GenerationContext, term_width: int) -> None:
 
 
 def main(argv: List[str]) -> int:
-    yaml_hint = _find_yaml_flag(argv)
-    yaml_path_for_help = _resolve_yaml_path(yaml_hint)
-
-    catalog_for_help: Optional[Catalog] = None
-    help_error: Optional[str] = None
-    try:
-        if os.path.isfile(yaml_path_for_help):
-            with open(yaml_path_for_help, "r", encoding="utf-8") as handle:
-                catalog_for_help = Catalog(yaml.safe_load(handle))
-    except Exception:
-        import traceback as _tb
-
-        help_error = _tb.format_exc(limit=1)
-        catalog_for_help = None
-
-    if _wants_help(argv):
-        print_dynamic_help(
-            argv[0],
-            catalog_for_help,
-            DEFAULT_YAML_REL,
-            yaml_path_for_help,
-            help_error,
-        )
-        return 0
-
     try:
         args = _parse_args(argv)
         data = _load_binary(args.input_path)
@@ -692,10 +666,20 @@ def main(argv: List[str]) -> int:
             catalog = _load_catalog(yaml_path)
             context = _build_catalog_context(args, data, catalog, yaml_path)
 
-        if args.web_mode:
-            _emit_web(context, term_width)
-        else:
-            _emit_native(context, term_width)
+        out_fd = None
+        if args.output_path:
+            out_fd = open(args.output_path, "w", encoding="utf-8")
+            sys.stdout = out_fd
+
+        try:
+            if args.web_mode:
+                _emit_web(context, term_width)
+            else:
+                _emit_native(context, term_width)
+        finally:
+            if out_fd:
+                sys.stdout = sys.__stdout__
+                out_fd.close()
 
         return 0
     except CLIError as exc:

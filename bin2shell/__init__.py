@@ -3,6 +3,5 @@ __all__ = [
     "catalog",
     "formatting",
     "utils",
-    "helptext",
 ]
 

@@ -136,7 +136,7 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
             cases.append(
                 TestCase(
                     label=f"enc={enc.index} env={env.index}",
-                    args=["--encoding", str(enc.index), "--envelope", str(env.index), input_path],
+                    args=["--encoder", str(enc.index), "--envelope", str(env.index), input_path],
                     mode="catalog",
                     encoder=f"{enc.index}:{enc.name}",
                     envelope=f"{env.index}:{env.name}",
@@ -150,7 +150,7 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
             cases.append(
                 TestCase(
                     label=f"enc={enc.index} env=default",
-                    args=["--encoding", str(enc.index), input_path],
+                    args=["--encoder", str(enc.index), input_path],
                     mode="catalog-default-env",
                     encoder=f"{enc.index}:{enc.name}",
                     envelope=f"{default_env.index}:{default_env.name}",
