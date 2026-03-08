@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 REQUIRED_FIELDS = {
     "encoders": ["name", "index", "python_snippet", "cpp_inverse"],
     "envelopes": ["name", "index", "python_snippet", "cpp_decode"],
+    "web_helpers": ["name", "index", "cpp_includes", "cpp_fetch_bytes", "cpp_fetch_text"],
 }
 
 
@@ -14,6 +15,7 @@ class Catalog:
         self.y = y or {}
         self.encoders: Dict[int, Dict[str, Any]] = {}
         self.envelopes: Dict[int, Dict[str, Any]] = {}
+        self.web_helpers: Dict[int, Dict[str, Any]] = {}
         self._validate_and_index()
 
     def _require_list(self, key: str) -> List[Dict[str, Any]]:
@@ -70,18 +72,25 @@ class Catalog:
         self.encoders = self._validate_block("encoders", encs)
         self.envelopes = self._validate_block("envelopes", envs)
 
-    def list_block(self, block: str) -> List[Dict[str, Any]]:
-        table = {
+        web = self.y.get("web_helpers")
+        if isinstance(web, list) and web:
+            self.web_helpers = self._validate_block("web_helpers", web)
+
+    def _block_table(self, block: str) -> Dict[int, Dict[str, Any]]:
+        return {
             "encoders": self.encoders,
             "envelopes": self.envelopes,
+            "web_helpers": self.web_helpers,
         }[block]
+
+    def list_block(self, block: str) -> List[Dict[str, Any]]:
+        table = self._block_table(block)
         return [table[i] for i in sorted(table.keys())]
 
     def default_index(self, block: str) -> int:
-        table = {
-            "encoders": self.encoders,
-            "envelopes": self.envelopes,
-        }[block]
+        table = self._block_table(block)
+        if not table:
+            return 0
         return min(table.keys())
 
     @staticmethod

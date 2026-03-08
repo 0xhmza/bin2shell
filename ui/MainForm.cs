@@ -31,6 +31,8 @@ public sealed class MainForm : Form
     readonly Label _lblEnvelope;
     readonly ComboBox _cmbEnvelope;
     readonly CheckBox _chkWeb;
+    readonly Label _lblWebHelper;
+    readonly ComboBox _cmbWebHelper;
     readonly Label _lblOutput;
     readonly TextBox _txtOutput;
     readonly Button _btnBrowseOutput;
@@ -63,7 +65,7 @@ public sealed class MainForm : Form
         ForeColor = FgText;
         Font = new Font("Segoe UI", 9F);
         Icon = SystemIcons.Shield;
-        ClientSize = new Size(460, 520);
+        ClientSize = new Size(460, 580);
 
         var darkMode = 1;
         DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
@@ -104,8 +106,17 @@ public sealed class MainForm : Form
             ForeColor = FgText,
             BackColor = BgDark,
         };
+        _chkWeb.CheckedChanged += WebModeToggled;
         Controls.Add(_chkWeb);
         row += 28 + gap;
+
+        // --- Web helper ---
+        _lblWebHelper = MakeLabel("Web helper:", x, row);
+        _lblWebHelper.Visible = false;
+        row += lblGap;
+        _cmbWebHelper = MakeDarkCombo(x, row, w);
+        _cmbWebHelper.Visible = false;
+        row += rh + gap + 4;
 
         // --- Output file ---
         _lblOutput = MakeLabel("Output file:", x, row);
@@ -247,14 +258,17 @@ public sealed class MainForm : Form
     {
         _cmbEncoder.Items.Clear();
         _cmbEnvelope.Items.Clear();
+        _cmbWebHelper.Items.Clear();
 
         var yamlPath = _txtYaml.Text.Trim();
         if (string.IsNullOrEmpty(yamlPath) || !File.Exists(yamlPath))
         {
             _cmbEncoder.Items.Add("[0] none");
             _cmbEnvelope.Items.Add("[0] none");
+            _cmbWebHelper.Items.Add("[0] winhttp");
             _cmbEncoder.SelectedIndex = 0;
             _cmbEnvelope.SelectedIndex = 0;
+            _cmbWebHelper.SelectedIndex = 0;
             return;
         }
 
@@ -264,11 +278,13 @@ public sealed class MainForm : Form
 import json, sys, yaml
 with open(r'{yamlPath.Replace("'", "\\'")}', 'r') as f:
     d = yaml.safe_load(f)
-out = {{'encoders': [], 'envelopes': []}}
+out = {{'encoders': [], 'envelopes': [], 'web_helpers': []}}
 for e in d.get('encoders', []):
     out['encoders'].append({{'index': e['index'], 'name': e.get('name','')}})
 for e in d.get('envelopes', []):
     out['envelopes'].append({{'index': e['index'], 'name': e.get('name','')}})
+for e in d.get('web_helpers', []):
+    out['web_helpers'].append({{'index': e['index'], 'name': e.get('name','')}})
 print(json.dumps(out))
 ";
             var psi = new ProcessStartInfo(_pythonExe, "-c \"" + script.Replace("\"", "\\\"") + "\"")
@@ -291,16 +307,21 @@ print(json.dumps(out))
                     _cmbEncoder.Items.Add($"[{enc.GetProperty("index").GetInt32()}] {enc.GetProperty("name").GetString()}");
                 foreach (var env in root.GetProperty("envelopes").EnumerateArray())
                     _cmbEnvelope.Items.Add($"[{env.GetProperty("index").GetInt32()}] {env.GetProperty("name").GetString()}");
+                if (root.TryGetProperty("web_helpers", out var wh))
+                    foreach (var w in wh.EnumerateArray())
+                        _cmbWebHelper.Items.Add($"[{w.GetProperty("index").GetInt32()}] {w.GetProperty("name").GetString()}");
             }
         }
         catch
         {
             _cmbEncoder.Items.Add("[0] none");
             _cmbEnvelope.Items.Add("[0] none");
+            _cmbWebHelper.Items.Add("[0] winhttp");
         }
 
         if (_cmbEncoder.Items.Count > 0) _cmbEncoder.SelectedIndex = 0;
         if (_cmbEnvelope.Items.Count > 0) _cmbEnvelope.SelectedIndex = 0;
+        if (_cmbWebHelper.Items.Count > 0) _cmbWebHelper.SelectedIndex = 0;
     }
 
     int ExtractIndex(ComboBox cmb)
@@ -339,7 +360,12 @@ print(json.dumps(out))
         var yamlPath = _txtYaml.Text.Trim();
         if (!string.IsNullOrEmpty(yamlPath) && File.Exists(yamlPath))
             args.AddRange(["-y", yamlPath]);
-        if (_chkWeb.Checked) args.Add("-w");
+        if (_chkWeb.Checked)
+        {
+            args.Add("-w");
+            var whIdx = ExtractIndex(_cmbWebHelper);
+            args.AddRange(["-wh", whIdx.ToString()]);
+        }
         args.AddRange(["-o", outputPath]);
         args.Add(inputPath);
 
@@ -444,6 +470,12 @@ print(json.dumps(out))
             _txtYaml.Text = dlg.FileName;
             LoadCatalog();
         }
+    }
+
+    void WebModeToggled(object? s, EventArgs e)
+    {
+        _lblWebHelper.Visible = _chkWeb.Checked;
+        _cmbWebHelper.Visible = _chkWeb.Checked;
     }
 
     void SetStatus(string msg, bool ok)
