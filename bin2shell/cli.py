@@ -448,7 +448,10 @@ def _build_catalog_context(
     except KeyError as exc:
         raise CLIError(f"Error: Missing placeholder for encoder inverse C++: {exc}")
 
-    sections.append(Section("raw", {"text": "\n// code_blob now holds the original binary bytes; length = code_blob_len\n"}))
+    # After all decoding, assign enc_buf/enc_len to code_blob/code_blob_len
+    sections.append(Section("raw", {"text": "\n// Assign the decoded buffer to code_blob\n"}))
+    sections.append(Section("raw", {"text": "unsigned char* code_blob = enc_buf;\n"}))
+    sections.append(Section("raw", {"text": "unsigned int code_blob_len = enc_len;\n"}))
 
     options_meta: Dict[str, Any] = {
         "encoder": {"index": enc_spec.get("index"), "name": enc_spec.get("name")},

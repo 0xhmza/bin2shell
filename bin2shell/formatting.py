@@ -37,6 +37,12 @@ def _c_string_escape(s: str) -> str:
             out.append("\\\\")
         elif ch == '"':
             out.append("\\\"")
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif ch == "\t":
+            out.append("\\t")
         else:
             out.append(ch)
     return "".join(out)
@@ -45,7 +51,18 @@ def _c_string_escape(s: str) -> str:
 def make_c_bstring(name: str, s: str, term_width: int) -> str:
     esc = _c_string_escape(s)
     max_seg = max(32, term_width - 4)
-    parts = [esc[i:i + max_seg] for i in range(0, len(esc), max_seg)]
+    parts = []
+    i = 0
+    while i < len(esc):
+        end = min(i + max_seg, len(esc))
+        # Avoid splitting in the middle of an escape sequence (e.g., \", \\, \n)
+        while end > i and esc[end - 1] == '\\':
+            end -= 1
+        if end == i:
+            # Edge case: segment is all backslashes; include at least one
+            end = min(i + max_seg, len(esc))
+        parts.append(esc[i:end])
+        i = end
     body = "\n".join(f"\"{p}\"" for p in parts)
     return f"const char {name}[] = \n{body}\n;\n"
 

@@ -16,6 +16,7 @@ ui/obj/
 # Test artifacts
 test/
 report.html
+report_web.html
 *.bak
 
 # Binary payloads

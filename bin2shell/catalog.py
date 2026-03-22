@@ -124,7 +124,12 @@ class Catalog:
             return data, {}, {}, spec
         keys = self._maybe_keys(spec)
         encode = self._exec_snippet(spec["python_snippet"], "encode", {})
-        out = encode(data, keys)
+        # Call encode with keys only if a keys_snippet was defined; otherwise
+        # let the snippet use its default key parameter.
+        if keys:
+            out = encode(data, keys)
+        else:
+            out = encode(data)
         if not isinstance(out, (bytes, bytearray)):
             raise RuntimeError("encode() must return bytes")
         emit = spec.get("emit", {})
