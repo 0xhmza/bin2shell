@@ -119,6 +119,9 @@ def compile_cpp(compiler_cmd: list[str], cpp_text: str) -> tuple[bool, str]:
         return proc.returncode == 0, output
 
 
+CARRIER_NAMES = ["ini", "png", "bmp", "ico"]
+
+
 def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path: str) -> list[TestCase]:
     cases: list[TestCase] = []
     cases.append(
@@ -165,6 +168,34 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
                     mode="catalog-default-enc",
                     encoder=f"{default_enc.index}:{default_enc.name}",
                     envelope=f"{env.index}:{env.name}",
+                    input_path=input_path,
+                )
+            )
+
+    # Carrier sweep — one representative encoder × one envelope per carrier.
+    # The carrier code path is independent of which encoder/envelope feeds it,
+    # so we don't multiply by the full matrix.
+    pick_enc = next((e for e in encoders if e.name == "chacha20"), default_enc)
+    pick_env = next((e for e in envelopes if e.name == "base64"), default_env)
+    if pick_enc and pick_env:
+        carrier_out_dir = os.path.join(ROOT, ".test-carrier-out")
+        os.makedirs(carrier_out_dir, exist_ok=True)
+        for carrier_name in CARRIER_NAMES:
+            carrier_file = os.path.join(carrier_out_dir, f"payload.{carrier_name}")
+            cases.append(
+                TestCase(
+                    label=f"carrier={carrier_name}",
+                    args=[
+                        "--encoder", str(pick_enc.index),
+                        "--envelope", str(pick_env.index),
+                        "--carrier", carrier_name,
+                        "--carrier-out", carrier_file,
+                        "--seed", "0xCAFE",
+                        input_path,
+                    ],
+                    mode=f"carrier-{carrier_name}",
+                    encoder=f"{pick_enc.index}:{pick_enc.name}",
+                    envelope=f"{pick_env.index}:{pick_env.name}",
                     input_path=input_path,
                 )
             )

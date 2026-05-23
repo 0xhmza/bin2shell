@@ -14,13 +14,21 @@ except ImportError:
     sys.stderr.write("Error: PyYAML is required. Install with: pip install pyyaml\n")
     raise
 
+from .carriers import (
+    Carrier,
+    get_carrier,
+    list_carriers,
+    render_carrier_cpp,
+)
 from .catalog import Catalog
 from .formatting import make_c_array, make_c_bstring, make_len_var, safe_format_cpp
+from .polymorphism import Polymorphism
 from .utils import get_terminal_width, read_file
 
 
 DEFAULT_YAML_REL = os.path.join("data", "yaml", "algos.yaml")
 PLACEHOLDER_TOKEN = "__PAYLOAD_PLACEHOLDER__"
+CARRIER_PAYLOAD_VAR = "__carrier_payload"
 
 
 def _web_fetch_helper_block(catalog: "Catalog", web_helper_idx: int) -> str:
@@ -73,6 +81,11 @@ class CLIArgs:
     web_mode: bool
     web_helper_index: Optional[int] = None
     output_path: Optional[str] = None
+    carrier: Optional[str] = None
+    carrier_out: Optional[str] = None
+    carrier_runtime_path: Optional[str] = None
+    seed: Optional[int] = None
+    polymorphism_level: int = 1
 
 
 @dataclass
@@ -83,6 +96,7 @@ class GenerationContext:
     options_meta: Dict[str, Any]
     catalog: Optional["Catalog"] = None
     web_helper_index: int = 0
+    polymorphism: Optional[Polymorphism] = None
 
 
 def _make_web_payload_array(name: str, expected_len: int) -> str:
@@ -243,6 +257,30 @@ def _render_sections(
                 chunks.append(_raw_wrapper_start())
                 raw_open = True
             chunks.append(_indent_block(meta.get("text", ""), "    "))
+        elif section.kind == "carrier_includes":
+            if raw_open:
+                chunks.append(_raw_wrapper_end())
+                raw_open = False
+            chunks.append(meta.get("text", ""))
+        elif section.kind == "carrier_load":
+            # Emits the file-read + unwrap C++ from carriers.py, then
+            # rebinds the result vector into the names the downstream
+            # envelope/encoder snippets expect.
+            if not raw_open:
+                chunks.append(_raw_wrapper_start())
+                raw_open = True
+            chunks.append(_indent_block(meta.get("text", ""), "    "))
+            target = meta.get("target", "code_blob_text")
+            if target == "enc_buf":
+                chunks.append(
+                    f"    unsigned char* enc_buf = {CARRIER_PAYLOAD_VAR}.data();\n"
+                    f"    unsigned int enc_len = (unsigned int){CARRIER_PAYLOAD_VAR}.size();\n"
+                )
+            else:
+                chunks.append(
+                    f"    const char* code_blob_text = (const char*){CARRIER_PAYLOAD_VAR}.data();\n"
+                    f"    unsigned int code_blob_text_len = (unsigned int){CARRIER_PAYLOAD_VAR}.size();\n"
+                )
         else:
             raise CLIError(f"Unsupported section type '{section.kind}'")
     if raw_open:
@@ -288,6 +326,12 @@ def _catalog_epilog(yaml_path: str) -> str:
                     desc = spec.get("desc", "")
                     lines.append(f"  [{idx}] {name}" + (f"  {desc}" if desc else ""))
             lines.append("")
+            lines.append("available carriers (--carrier):")
+            for cspec in list_carriers():
+                lines.append(
+                    f"  [{cspec['index']}] {cspec['name']}  (.{cspec['extension']})  {cspec['desc']}"
+                )
+            lines.append("")
             lines.append(f"defaults: encoder={cat.default_index('encoders')}, envelope={cat.default_index('envelopes')}")
     except Exception:
         lines.append(f"(could not load catalog from {yaml_path})")
@@ -313,6 +357,18 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
                         help="emit YAML bundle with web-fetch C++ template")
     parser.add_argument("-wh", "--web-helper", type=int, default=None, metavar="N",
                         help="web helper index for HTTP fetch implementation (see list below)")
+    parser.add_argument("-c", "--carrier", default=None, metavar="NAME|N",
+                        help="wrap the encoded payload in an external file (ini, png, bmp, ico — see list below)")
+    parser.add_argument("--carrier-out", default=None, metavar="FILE",
+                        help="write the wrapped carrier file to FILE "
+                             "(default: <output>.<carrier-ext> or payload.<ext> when stdout)")
+    parser.add_argument("--carrier-runtime-path", default=None, metavar="EXPR",
+                        help="C++ expression evaluating to the runtime carrier path "
+                             '(default: basename of --carrier-out as a string literal)')
+    parser.add_argument("--seed", type=lambda s: int(s, 0), default=None, metavar="N",
+                        help="seed the polymorphism RNG for reproducible builds (accepts 0x… hex)")
+    parser.add_argument("--poly", type=int, choices=[0, 1, 2, 3], default=1, metavar="L",
+                        help="polymorphism level: 0 off, 1 rename internals (default), 2 + reorder, 3 + junk")
     parser.add_argument("-o", "--output", default=None, metavar="FILE",
                         help="write output to FILE instead of stdout")
     return parser
@@ -335,6 +391,11 @@ def _parse_args(argv: List[str]) -> CLIArgs:
         web_mode=ns.web,
         web_helper_index=ns.web_helper,
         output_path=ns.output,
+        carrier=ns.carrier,
+        carrier_out=ns.carrier_out,
+        carrier_runtime_path=ns.carrier_runtime_path,
+        seed=ns.seed,
+        polymorphism_level=ns.poly,
     )
 
 
@@ -589,10 +650,87 @@ def _emit_native(context: GenerationContext, term_width: int) -> None:
         _render_sections(context.sections, False, term_width, PLACEHOLDER_TOKEN,
                          catalog=context.catalog, web_helper_idx=context.web_helper_index)
     )
+    if context.polymorphism is not None and context.polymorphism.level > 0:
+        code_output = context.polymorphism.header_banner() + context.polymorphism.rename_internals(code_output)
     sys.stdout.write(code_output)
 
 
+def _apply_carrier(
+    context: GenerationContext,
+    args: CLIArgs,
+    payload_bytes_for_carrier: bytes,
+    envelope_name: str,
+) -> tuple[str, bytes]:
+    """Wrap the encoded payload in a carrier file, mutate the section list
+    so the runtime C++ loads from that file instead of an inline literal,
+    and return (carrier_output_path, carrier_file_bytes).
+
+    Only the payload-bearing sections (``payload_array`` / ``payload_string``
+    and their matching length sections) are replaced. Key arrays, length
+    constants, and inverse C++ snippets stay in place so the rest of the
+    pipeline is unaware that the payload now lives on disk.
+    """
+    carrier = get_carrier(args.carrier)
+    carrier_bytes = carrier.wrap(payload_bytes_for_carrier)
+
+    # Where to save the wrapped file on the build host.
+    if args.carrier_out:
+        carrier_out_path = args.carrier_out
+    elif args.output_path:
+        base = os.path.splitext(args.output_path)[0]
+        carrier_out_path = f"{base}.{carrier.extension}"
+    else:
+        carrier_out_path = f"payload.{carrier.extension}"
+
+    os.makedirs(os.path.dirname(os.path.abspath(carrier_out_path)) or ".", exist_ok=True)
+    with open(carrier_out_path, "wb") as fh:
+        fh.write(carrier_bytes)
+
+    runtime_path_expr = args.carrier_runtime_path or f'"{os.path.basename(carrier_out_path)}"'
+    target_var = "enc_buf" if envelope_name == "none" else "code_blob_text"
+
+    # Filter out inline payload sections; carrier replaces them.
+    drop_names = {"code_blob_text", "enc_buf"}
+    kept: List[Section] = []
+    for sec in context.sections:
+        if sec.kind in ("payload_array", "payload_string") and sec.meta.get("name") in drop_names:
+            continue
+        if sec.kind in ("len_var", "len_literal") and sec.meta.get("payload_name") in drop_names:
+            continue
+        kept.append(sec)
+
+    carrier_load_text = render_carrier_cpp(
+        carrier,
+        carrier_out_var=CARRIER_PAYLOAD_VAR,
+        carrier_path_expr=runtime_path_expr,
+    )
+
+    # Insert carrier sections at the point where the payload used to live —
+    # i.e. just before the first raw-decode section.
+    insert_at = next(
+        (i for i, s in enumerate(kept) if s.kind == "raw"),
+        len(kept),
+    )
+    kept.insert(insert_at, Section("carrier_includes", {"text": carrier.cpp_includes}))
+    kept.insert(insert_at + 1, Section(
+        "carrier_load",
+        {
+            "text": carrier_load_text,
+            "target": target_var,
+        },
+    ))
+    context.sections = kept
+    return carrier_out_path, carrier_bytes
+
+
 def main(argv: List[str]) -> int:
+    # Force UTF-8 on stdout; the legacy cp1252 default on Windows blows up
+    # the moment a generated source includes a non-ASCII comment or string.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
     try:
         args = _parse_args(argv)
         data = _load_binary(args.input_path)
@@ -603,6 +741,7 @@ def main(argv: List[str]) -> int:
             or args.encoder_index is not None
             or args.envelope_index is not None
             or args.web_mode
+            or args.carrier is not None
         )
         if not needs_catalog:
             context = _build_simple_context(data)
@@ -614,12 +753,38 @@ def main(argv: List[str]) -> int:
                 )
             catalog = _load_catalog(yaml_path)
             web_helper_idx = args.web_helper_index if args.web_helper_index is not None else catalog.default_index("web_helpers") if catalog.web_helpers else 0
-            if args.encoder_index is None and args.envelope_index is None and not args.web_mode:
+            if args.encoder_index is None and args.envelope_index is None and not args.web_mode and args.carrier is None:
                 context = _build_simple_context(data)
             else:
                 context = _build_catalog_context(args, data, catalog, yaml_path)
             context.catalog = catalog
             context.web_helper_index = web_helper_idx
+
+        if args.carrier is not None:
+            if args.web_mode:
+                raise CLIError("--carrier and --web are mutually exclusive (carrier loads from disk; web fetches over HTTP)")
+            if context.payload_bytes is None and context.payload_text is None:
+                raise CLIError("Carrier mode requires an encoder/envelope pipeline.")
+            envelope_name = str(context.options_meta.get("envelope", {}).get("name", "none")).lower()
+            if envelope_name == "none":
+                payload_for_carrier = context.payload_bytes or b""
+            else:
+                payload_for_carrier = (context.payload_text or "").encode("utf-8")
+            carrier_path, carrier_bytes = _apply_carrier(context, args, payload_for_carrier, envelope_name)
+            context.options_meta["carrier"] = {
+                "name": args.carrier,
+                "path": carrier_path,
+                "bytes": len(carrier_bytes),
+            }
+            sys.stderr.write(
+                f"Carrier '{args.carrier}' written to {carrier_path} ({len(carrier_bytes)} bytes)\n"
+            )
+
+        context.polymorphism = Polymorphism(seed=args.seed, level=args.polymorphism_level)
+        context.options_meta["polymorphism"] = {
+            "seed": context.polymorphism.seed,
+            "level": context.polymorphism.level,
+        }
 
         out_fd = None
         if args.output_path:

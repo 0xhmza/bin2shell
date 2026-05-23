@@ -42,6 +42,14 @@ public sealed class MainForm : Form
     readonly Label _lblYaml;
     readonly TextBox _txtYaml;
     readonly Button _btnBrowseYaml;
+    readonly Label _lblCarrier;
+    readonly ComboBox _cmbCarrier;
+    readonly Label _lblPoly;
+    readonly ComboBox _cmbPoly;
+    readonly Label _lblSeed;
+    readonly TextBox _txtSeed;
+
+    static readonly string[] CarrierNames = ["(none)", "ini", "png", "bmp", "ico"];
 
     string _pythonExe = "python";
     string _scriptDir = "";
@@ -65,7 +73,7 @@ public sealed class MainForm : Form
         ForeColor = FgText;
         Font = new Font("Segoe UI", 9F);
         Icon = SystemIcons.Shield;
-        ClientSize = new Size(460, 580);
+        ClientSize = new Size(460, 700);
 
         var darkMode = 1;
         DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
@@ -116,6 +124,23 @@ public sealed class MainForm : Form
         row += lblGap;
         _cmbWebHelper = MakeDarkCombo(x, row, w);
         _cmbWebHelper.Visible = false;
+        row += rh + gap + 4;
+
+        // --- Carrier (external file spoofing) + Polymorphism seed ---
+        _lblCarrier = MakeLabel("Carrier (external file):", x, row);
+        _lblPoly    = MakeLabel("Polymorphism level:", x + w / 2 + 4, row);
+        row += lblGap;
+        _cmbCarrier = MakeDarkCombo(x, row, w / 2 - 4);
+        foreach (var n in CarrierNames) _cmbCarrier.Items.Add(n);
+        _cmbCarrier.SelectedIndex = 0;
+        _cmbPoly = MakeDarkCombo(x + w / 2 + 4, row, w / 2 - 4);
+        _cmbPoly.Items.AddRange(new object[] { "0 (off)", "1 (rename)", "2 (rename + reorder)", "3 (rename + reorder + junk)" });
+        _cmbPoly.SelectedIndex = 1;
+        row += rh + gap + 4;
+
+        _lblSeed = MakeLabel("Seed (optional, hex/dec):", x, row);
+        row += lblGap;
+        _txtSeed = MakeTextBox(x, row, w);
         row += rh + gap + 4;
 
         // --- Output file ---
@@ -366,6 +391,29 @@ print(json.dumps(out))
             var whIdx = ExtractIndex(_cmbWebHelper);
             args.AddRange(["-wh", whIdx.ToString()]);
         }
+
+        var carrierName = _cmbCarrier.SelectedItem?.ToString() ?? "(none)";
+        if (carrierName != "(none)")
+        {
+            if (_chkWeb.Checked)
+            {
+                SetStatus("Web mode and Carrier are mutually exclusive", false);
+                _btnGenerate.Enabled = true;
+                return;
+            }
+            args.AddRange(["--carrier", carrierName]);
+            var carrierOutDir = Path.GetDirectoryName(outputPath) ?? _scriptDir;
+            var carrierPath = Path.Combine(carrierOutDir, "payload." + carrierName);
+            args.AddRange(["--carrier-out", carrierPath]);
+        }
+
+        var polyLevel = _cmbPoly.SelectedIndex; // 0..3, matches CLI --poly
+        args.AddRange(["--poly", polyLevel.ToString()]);
+
+        var seedText = _txtSeed.Text.Trim();
+        if (!string.IsNullOrEmpty(seedText))
+            args.AddRange(["--seed", seedText]);
+
         args.AddRange(["-o", outputPath]);
         args.Add(inputPath);
 

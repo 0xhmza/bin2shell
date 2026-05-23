@@ -90,6 +90,245 @@ encoders:
     for (unsigned int i = 0; i < enc_len; ++i) {
         enc_buf[i] = (unsigned char)((enc_buf[i] >> 3) | ((enc_buf[i] & 0x07) << 5));
     }
+- index: 6
+  name: rc4_random
+  desc: RC4 with per-build random 16-byte key (replaces legacy fixed-key rc4)
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"rc4_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        key = keys["rc4_key"]
+        S = list(range(256))
+        j = 0
+        for i in range(256):
+            j = (j + S[i] + key[i % len(key)]) % 256
+            S[i], S[j] = S[j], S[i]
+        i = j = 0
+        out = bytearray()
+        for b in data:
+            i = (i + 1) % 256
+            j = (j + S[i]) % 256
+            S[i], S[j] = S[j], S[i]
+            out.append(b ^ S[(S[i] + S[j]) % 256])
+        return bytes(out)
+  cpp_inverse: |
+    // RC4 with random per-build key
+    {
+        unsigned char S[256];
+        for (int i = 0; i < 256; ++i) S[i] = (unsigned char)i;
+        unsigned int j = 0;
+        for (int i = 0; i < 256; ++i) {
+            j = (j + S[i] + rc4_key[i % rc4_key_len]) & 0xFF;
+            unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
+        }
+        unsigned int x = 0, y = 0;
+        for (unsigned int k = 0; k < enc_len; ++k) {
+            x = (x + 1) & 0xFF;
+            y = (y + S[x]) & 0xFF;
+            unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
+            enc_buf[k] ^= S[(S[x] + S[y]) & 0xFF];
+        }
+    }
+- index: 7
+  name: xor_random
+  desc: Multi-byte XOR with per-build random 16-byte key
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"xor_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        k = keys["xor_key"]
+        return bytes(data[i] ^ k[i % len(k)] for i in range(len(data)))
+  cpp_inverse: |
+    // Multi-byte XOR with random per-build key
+    for (unsigned int i = 0; i < enc_len; ++i) {
+        enc_buf[i] ^= xor_key[i % xor_key_len];
+    }
+- index: 8
+  name: tea
+  desc: TEA (32-round Feistel, 64-bit block, random 128-bit key) — CTR mode over block index
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"tea_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        k = struct.unpack("<4I", keys["tea_key"])
+        DELTA = 0x9E3779B9
+        out = bytearray()
+        for block_index in range((len(data) + 7) // 8):
+            v0, v1 = block_index, 0
+            s = 0
+            for _ in range(32):
+                s = (s + DELTA) & 0xFFFFFFFF
+                v0 = (v0 + (((v1 << 4) + k[0]) ^ (v1 + s) ^ ((v1 >> 5) + k[1]))) & 0xFFFFFFFF
+                v1 = (v1 + (((v0 << 4) + k[2]) ^ (v0 + s) ^ ((v0 >> 5) + k[3]))) & 0xFFFFFFFF
+            ks = struct.pack("<2I", v0, v1)
+            chunk = data[block_index * 8 : block_index * 8 + 8]
+            out.extend(c ^ k_ for c, k_ in zip(chunk, ks))
+        return bytes(out)
+  cpp_inverse: |
+    // TEA-CTR (32 rounds, 64-bit block, 128-bit random key) — symmetric: same as encode
+    {
+        unsigned int k0 = (unsigned int)tea_key[ 0] | ((unsigned int)tea_key[ 1]<<8) | ((unsigned int)tea_key[ 2]<<16) | ((unsigned int)tea_key[ 3]<<24);
+        unsigned int k1 = (unsigned int)tea_key[ 4] | ((unsigned int)tea_key[ 5]<<8) | ((unsigned int)tea_key[ 6]<<16) | ((unsigned int)tea_key[ 7]<<24);
+        unsigned int k2 = (unsigned int)tea_key[ 8] | ((unsigned int)tea_key[ 9]<<8) | ((unsigned int)tea_key[10]<<16) | ((unsigned int)tea_key[11]<<24);
+        unsigned int k3 = (unsigned int)tea_key[12] | ((unsigned int)tea_key[13]<<8) | ((unsigned int)tea_key[14]<<16) | ((unsigned int)tea_key[15]<<24);
+        const unsigned int DELTA = 0x9E3779B9u;
+        for (unsigned int bi = 0; bi * 8u < enc_len; ++bi) {
+            unsigned int v0 = bi, v1 = 0u, s = 0u;
+            for (int r = 0; r < 32; ++r) {
+                s += DELTA;
+                v0 += ((v1 << 4) + k0) ^ (v1 + s) ^ ((v1 >> 5) + k1);
+                v1 += ((v0 << 4) + k2) ^ (v0 + s) ^ ((v0 >> 5) + k3);
+            }
+            unsigned char ks[8] = {
+                (unsigned char)(v0      ), (unsigned char)(v0 >>  8),
+                (unsigned char)(v0 >> 16), (unsigned char)(v0 >> 24),
+                (unsigned char)(v1      ), (unsigned char)(v1 >>  8),
+                (unsigned char)(v1 >> 16), (unsigned char)(v1 >> 24),
+            };
+            for (unsigned int i = 0; i < 8 && bi * 8u + i < enc_len; ++i) {
+                enc_buf[bi * 8u + i] ^= ks[i];
+            }
+        }
+    }
+- index: 9
+  name: xtea
+  desc: XTEA-CTR (32 rounds, hardened TEA variant, random 128-bit key)
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"xtea_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        k = struct.unpack("<4I", keys["xtea_key"])
+        DELTA = 0x9E3779B9
+        out = bytearray()
+        for block_index in range((len(data) + 7) // 8):
+            v0, v1 = block_index, 0
+            s = 0
+            for _ in range(32):
+                v0 = (v0 + ((((v1 << 4) ^ (v1 >> 5)) + v1) ^ (s + k[s & 3]))) & 0xFFFFFFFF
+                s = (s + DELTA) & 0xFFFFFFFF
+                v1 = (v1 + ((((v0 << 4) ^ (v0 >> 5)) + v0) ^ (s + k[(s >> 11) & 3]))) & 0xFFFFFFFF
+            ks = struct.pack("<2I", v0, v1)
+            chunk = data[block_index * 8 : block_index * 8 + 8]
+            out.extend(c ^ k_ for c, k_ in zip(chunk, ks))
+        return bytes(out)
+  cpp_inverse: |
+    // XTEA-CTR (random 128-bit key) — symmetric stream-mode decode
+    {
+        unsigned int k[4];
+        for (int i = 0; i < 4; ++i) {
+            k[i] = (unsigned int)xtea_key[i*4 + 0]
+                 | ((unsigned int)xtea_key[i*4 + 1] << 8)
+                 | ((unsigned int)xtea_key[i*4 + 2] << 16)
+                 | ((unsigned int)xtea_key[i*4 + 3] << 24);
+        }
+        const unsigned int DELTA = 0x9E3779B9u;
+        for (unsigned int bi = 0; bi * 8u < enc_len; ++bi) {
+            unsigned int v0 = bi, v1 = 0u, s = 0u;
+            for (int r = 0; r < 32; ++r) {
+                v0 += ((((v1 << 4) ^ (v1 >> 5)) + v1) ^ (s + k[s & 3]));
+                s += DELTA;
+                v1 += ((((v0 << 4) ^ (v0 >> 5)) + v0) ^ (s + k[(s >> 11) & 3]));
+            }
+            unsigned char ks[8] = {
+                (unsigned char)(v0      ), (unsigned char)(v0 >>  8),
+                (unsigned char)(v0 >> 16), (unsigned char)(v0 >> 24),
+                (unsigned char)(v1      ), (unsigned char)(v1 >>  8),
+                (unsigned char)(v1 >> 16), (unsigned char)(v1 >> 24),
+            };
+            for (unsigned int i = 0; i < 8 && bi * 8u + i < enc_len; ++i) {
+                enc_buf[bi * 8u + i] ^= ks[i];
+            }
+        }
+    }
+- index: 10
+  name: chacha20
+  desc: ChaCha20 stream cipher with per-build random 256-bit key + 96-bit nonce
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"chacha_key": os.urandom(32), "chacha_nonce": os.urandom(12)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        key = keys["chacha_key"]; nonce = keys["chacha_nonce"]
+        def rotl(a, b): return ((a << b) & 0xFFFFFFFF) | (a >> (32 - b))
+        def quarter(s, a, b, c, d):
+            s[a] = (s[a] + s[b]) & 0xFFFFFFFF; s[d] = rotl(s[d] ^ s[a], 16)
+            s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = rotl(s[b] ^ s[c], 12)
+            s[a] = (s[a] + s[b]) & 0xFFFFFFFF; s[d] = rotl(s[d] ^ s[a], 8)
+            s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = rotl(s[b] ^ s[c], 7)
+        const = (0x61707865, 0x3320646E, 0x79622D32, 0x6B206574)
+        key_words = struct.unpack("<8I", key)
+        nonce_words = struct.unpack("<3I", nonce)
+        out = bytearray()
+        for counter in range((len(data) + 63) // 64):
+            state = list(const) + list(key_words) + [counter] + list(nonce_words)
+            working = state[:]
+            for _ in range(10):
+                quarter(working, 0, 4,  8, 12); quarter(working, 1, 5,  9, 13)
+                quarter(working, 2, 6, 10, 14); quarter(working, 3, 7, 11, 15)
+                quarter(working, 0, 5, 10, 15); quarter(working, 1, 6, 11, 12)
+                quarter(working, 2, 7,  8, 13); quarter(working, 3, 4,  9, 14)
+            keystream = b"".join(struct.pack("<I", (working[i] + state[i]) & 0xFFFFFFFF) for i in range(16))
+            chunk = data[counter * 64 : counter * 64 + 64]
+            out.extend(c ^ k for c, k in zip(chunk, keystream))
+        return bytes(out)
+  cpp_inverse: |
+    // ChaCha20 stream cipher (RFC 8439), random 256-bit key + 96-bit nonce — symmetric
+    {
+        auto rotl32 = [](unsigned int x, int n) -> unsigned int {
+            return (x << n) | (x >> (32 - n));
+        };
+        auto load_le = [](const unsigned char* p) -> unsigned int {
+            return (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+                 | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
+        };
+        unsigned int key_words[8];
+        for (int i = 0; i < 8; ++i) key_words[i] = load_le(chacha_key + i * 4);
+        unsigned int nonce_words[3];
+        for (int i = 0; i < 3; ++i) nonce_words[i] = load_le(chacha_nonce + i * 4);
+        const unsigned int CONSTS[4] = { 0x61707865u, 0x3320646Eu, 0x79622D32u, 0x6B206574u };
+        for (unsigned int counter = 0; counter * 64u < enc_len; ++counter) {
+            unsigned int state[16];
+            for (int i = 0; i < 4; ++i) state[i]      = CONSTS[i];
+            for (int i = 0; i < 8; ++i) state[4 + i]  = key_words[i];
+            state[12] = counter;
+            for (int i = 0; i < 3; ++i) state[13 + i] = nonce_words[i];
+            unsigned int w[16];
+            for (int i = 0; i < 16; ++i) w[i] = state[i];
+            for (int r = 0; r < 10; ++r) {
+                #define QR(a,b,c,d) \
+                    w[a]+=w[b]; w[d]=rotl32(w[d]^w[a],16); \
+                    w[c]+=w[d]; w[b]=rotl32(w[b]^w[c],12); \
+                    w[a]+=w[b]; w[d]=rotl32(w[d]^w[a], 8); \
+                    w[c]+=w[d]; w[b]=rotl32(w[b]^w[c], 7)
+                QR(0,4, 8,12); QR(1,5, 9,13); QR(2,6,10,14); QR(3,7,11,15);
+                QR(0,5,10,15); QR(1,6,11,12); QR(2,7, 8,13); QR(3,4, 9,14);
+                #undef QR
+            }
+            unsigned char ks[64];
+            for (int i = 0; i < 16; ++i) {
+                unsigned int v = w[i] + state[i];
+                ks[i*4+0] = (unsigned char)(v      );
+                ks[i*4+1] = (unsigned char)(v >>  8);
+                ks[i*4+2] = (unsigned char)(v >> 16);
+                ks[i*4+3] = (unsigned char)(v >> 24);
+            }
+            for (unsigned int i = 0; i < 64 && counter * 64u + i < enc_len; ++i) {
+                enc_buf[counter * 64u + i] ^= ks[i];
+            }
+        }
+    }
 envelopes:
 - index: 0
   name: none
