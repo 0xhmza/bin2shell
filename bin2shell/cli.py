@@ -22,7 +22,7 @@ from .carriers import (
 )
 from .catalog import Catalog
 from .formatting import make_c_array, make_c_bstring, make_len_var, safe_format_cpp
-from .polymorphism import Polymorphism
+from .diversify import Diversifier
 from .utils import get_terminal_width, read_file
 
 
@@ -96,7 +96,7 @@ class GenerationContext:
     options_meta: Dict[str, Any]
     catalog: Optional["Catalog"] = None
     web_helper_index: int = 0
-    polymorphism: Optional[Polymorphism] = None
+    polymorphism: Optional[Diversifier] = None
 
 
 def _make_web_payload_array(name: str, expected_len: int) -> str:
@@ -339,52 +339,92 @@ def _catalog_epilog(yaml_path: str) -> str:
 
 
 def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
+    # bin2shell mirrors the Washmachine CLI's three-form convention so a
+    # caller can pick whichever style matches their shell habits:
+    #   short:       -e 2
+    #   PowerShell:  -Encoder 2     (PascalCase, single dash)
+    #   POSIX long:  --encoder 2    (kebab-case, double dash)
+    # All three are aliases for the same destination; they're documented
+    # together in the help text.
     epilog = _catalog_epilog(yaml_path)
     parser = argparse.ArgumentParser(
         prog="bin2shell",
         description="Convert binary files to C/C++ source that reconstructs the original bytes at runtime.",
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        # add_help=False so we can publish a tri-form -h / -Help / --help.
+        add_help=False,
     )
-    parser.add_argument("input", metavar="INPUT", help="path to the input binary file")
-    parser.add_argument("-e", "--encoder", type=int, default=None, metavar="N",
+
+    # INPUT may be given either positionally (legacy) or via -Input/--input
+    # for parity with the Washmachine CLI's -Shellcode style. _parse_args
+    # reconciles the two and errors if neither was supplied.
+    parser.add_argument("INPUT", nargs="?", default=None,
+                        help="path to the input binary file (or use -Input/--input)")
+    parser.add_argument("-Input", "--input", dest="input_flag", default=None, metavar="PATH",
+                        help="path to the input binary file (named alternative to the positional INPUT)")
+
+    parser.add_argument("-e", "-Encoder", "--encoder", dest="encoder",
+                        type=int, default=None, metavar="N",
                         help="encoder index (see list below)")
-    parser.add_argument("-v", "--envelope", type=int, default=None, metavar="N",
+    parser.add_argument("-v", "-Envelope", "--envelope", dest="envelope",
+                        type=int, default=None, metavar="N",
                         help="envelope index (see list below)")
-    parser.add_argument("-y", "--yaml", default=None, metavar="PATH",
+    parser.add_argument("-y", "-Yaml", "--yaml", dest="yaml", default=None, metavar="PATH",
                         help=f"path to algorithms YAML (default: {DEFAULT_YAML_REL})")
-    parser.add_argument("-w", "--web", action="store_true",
+    parser.add_argument("-w", "-Web", "--web", dest="web", action="store_true",
                         help="emit YAML bundle with web-fetch C++ template")
-    parser.add_argument("-wh", "--web-helper", type=int, default=None, metavar="N",
+    parser.add_argument("-wh", "-WebHelper", "--web-helper", dest="web_helper",
+                        type=int, default=None, metavar="N",
                         help="web helper index for HTTP fetch implementation (see list below)")
-    parser.add_argument("-c", "--carrier", default=None, metavar="NAME|N",
+    parser.add_argument("-c", "-Carrier", "--carrier", dest="carrier", default=None, metavar="NAME|N",
                         help="wrap the encoded payload in an external file (ini, png, bmp, ico — see list below)")
-    parser.add_argument("--carrier-out", default=None, metavar="FILE",
+    parser.add_argument("-CarrierOut", "--carrier-out", dest="carrier_out", default=None, metavar="FILE",
                         help="write the wrapped carrier file to FILE "
                              "(default: <output>.<carrier-ext> or payload.<ext> when stdout)")
-    parser.add_argument("--carrier-runtime-path", default=None, metavar="EXPR",
+    parser.add_argument("-CarrierRuntimePath", "--carrier-runtime-path",
+                        dest="carrier_runtime_path", default=None, metavar="EXPR",
                         help="C++ expression evaluating to the runtime carrier path "
                              '(default: basename of --carrier-out as a string literal)')
-    parser.add_argument("--seed", type=lambda s: int(s, 0), default=None, metavar="N",
+    parser.add_argument("-Seed", "--seed", dest="seed",
+                        type=lambda s: int(s, 0), default=None, metavar="N",
                         help="seed the polymorphism RNG for reproducible builds (accepts 0x… hex)")
-    parser.add_argument("--poly", type=int, choices=[0, 1, 2, 3], default=1, metavar="L",
+    parser.add_argument("-Poly", "--poly", dest="poly",
+                        type=int, choices=[0, 1, 2, 3], default=1, metavar="L",
                         help="polymorphism level: 0 off, 1 rename internals (default), 2 + reorder, 3 + junk")
-    parser.add_argument("-o", "--output", default=None, metavar="FILE",
+    parser.add_argument("-o", "-Output", "--output", dest="output", default=None, metavar="FILE",
                         help="write output to FILE instead of stdout")
+
+    # Tri-form help, since we disabled argparse's auto-generated -h.
+    parser.add_argument("-h", "-Help", "--help", action="help",
+                        help="show this help message and exit")
     return parser
 
 
 def _parse_args(argv: List[str]) -> CLIArgs:
+    # Look ahead for the YAML path so the help epilog can list the catalog
+    # entries from the file the caller actually intends to use. Accept every
+    # alias form here too, otherwise -Yaml/--yaml wouldn't influence the
+    # epilog.
     yaml_hint = None
+    yaml_aliases = {"-y", "-Yaml", "--yaml"}
     for i, tok in enumerate(argv[1:], 1):
-        if tok in ("-y", "--yaml") and i + 1 < len(argv):
+        if tok in yaml_aliases and i + 1 < len(argv):
             yaml_hint = argv[i + 1]
             break
     yaml_path = _resolve_yaml_path(yaml_hint)
     parser = _build_parser(yaml_path)
     ns = parser.parse_args(argv[1:])
+
+    # Either the positional INPUT or the -Input/--input flag must be present.
+    input_path = ns.input_flag or ns.INPUT
+    if not input_path:
+        parser.error(
+            "INPUT file is required: pass it as a positional argument or via -Input/--input."
+        )
+
     return CLIArgs(
-        input_path=ns.input,
+        input_path=input_path,
         yaml_override=ns.yaml,
         encoder_index=ns.encoder,
         envelope_index=ns.envelope,
@@ -780,7 +820,7 @@ def main(argv: List[str]) -> int:
                 f"Carrier '{args.carrier}' written to {carrier_path} ({len(carrier_bytes)} bytes)\n"
             )
 
-        context.polymorphism = Polymorphism(seed=args.seed, level=args.polymorphism_level)
+        context.polymorphism = Diversifier(seed=args.seed, level=args.polymorphism_level)
         context.options_meta["polymorphism"] = {
             "seed": context.polymorphism.seed,
             "level": context.polymorphism.level,

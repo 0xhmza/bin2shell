@@ -3,6 +3,6 @@ __all__ = [
     "catalog",
     "cli",
     "formatting",
-    "polymorphism",
+    "diversify",
     "utils",
 ]

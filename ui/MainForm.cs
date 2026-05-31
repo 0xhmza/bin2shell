@@ -11,43 +11,49 @@ public sealed class MainForm : Form
     static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 
-    static readonly Color BgDark = Color.FromArgb(32, 32, 32);
-    static readonly Color BgControl = Color.FromArgb(45, 45, 45);
-    static readonly Color BgField = Color.FromArgb(55, 55, 55);
-    static readonly Color FgText = Color.FromArgb(220, 220, 220);
-    static readonly Color FgDim = Color.FromArgb(160, 160, 160);
-    static readonly Color AccentBlue = Color.FromArgb(0, 120, 215);
-    static readonly Color BtnHover = Color.FromArgb(60, 60, 60);
-    static readonly Color BorderColor = Color.FromArgb(70, 70, 70);
-    static readonly Color GreenOk = Color.FromArgb(80, 200, 80);
-    static readonly Color RedErr = Color.FromArgb(220, 80, 80);
-    static readonly Color LogBg = Color.FromArgb(25, 25, 25);
+    // VS Code–inspired dark palette
+    static readonly Color BgDark     = Color.FromArgb(30, 30, 30);
+    static readonly Color BgField    = Color.FromArgb(58, 58, 58);
+    static readonly Color BgButton   = Color.FromArgb(44, 44, 44);
+    static readonly Color FgText     = Color.FromArgb(212, 212, 212);
+    static readonly Color FgDim      = Color.FromArgb(118, 118, 118);
+    static readonly Color FgSection  = Color.FromArgb(86, 156, 214);
+    static readonly Color AccentBlue = Color.FromArgb(0, 122, 204);
+    static readonly Color AccentHov  = Color.FromArgb(28, 143, 220);
+    static readonly Color BtnHover   = Color.FromArgb(62, 62, 62);
+    static readonly Color BorderColor = Color.FromArgb(65, 65, 65);
+    static readonly Color GreenOk    = Color.FromArgb(78, 201, 176);
+    static readonly Color RedErr     = Color.FromArgb(244, 135, 113);
+    static readonly Color LogBg      = Color.FromArgb(20, 20, 20);
+    static readonly Color SepColor   = Color.FromArgb(50, 50, 50);
 
-    readonly Label _lblInput;
-    readonly TextBox _txtInput;
-    readonly Button _btnBrowseInput;
-    readonly Label _lblEncoder;
-    readonly ComboBox _cmbEncoder;
-    readonly Label _lblEnvelope;
-    readonly ComboBox _cmbEnvelope;
-    readonly CheckBox _chkWeb;
-    readonly Label _lblWebHelper;
-    readonly ComboBox _cmbWebHelper;
-    readonly Label _lblOutput;
-    readonly TextBox _txtOutput;
-    readonly Button _btnBrowseOutput;
-    readonly Button _btnGenerate;
-    readonly Label _lblStatus;
+    const int PadX  = 16;
+    const int FormW = 580;
+
+    readonly Label       _lblInput;
+    readonly TextBox     _txtInput;
+    readonly Button      _btnBrowseInput;
+    readonly Label       _lblEncoder;
+    readonly ComboBox    _cmbEncoder;
+    readonly Label       _lblEnvelope;
+    readonly ComboBox    _cmbEnvelope;
+    readonly CheckBox    _chkWeb;
+    readonly Label       _lblWebHelper;
+    readonly ComboBox    _cmbWebHelper;
+    readonly Label       _lblOutput;
+    readonly TextBox     _txtOutput;
+    readonly Button      _btnBrowseOutput;
+    readonly Button      _btnCopyOutput;
+    readonly Button      _btnGenerate;
+    readonly Label       _lblStatus;
     readonly RichTextBox _txtLog;
-    readonly Label _lblYaml;
-    readonly TextBox _txtYaml;
-    readonly Button _btnBrowseYaml;
-    readonly Label _lblCarrier;
-    readonly ComboBox _cmbCarrier;
-    readonly Label _lblPoly;
-    readonly ComboBox _cmbPoly;
-    readonly Label _lblSeed;
-    readonly TextBox _txtSeed;
+    readonly Button      _btnClearLog;
+    readonly Label       _lblYaml;
+    readonly TextBox     _txtYaml;
+    readonly Button      _btnBrowseYaml;
+    readonly Label       _lblCarrier;
+    readonly ComboBox    _cmbCarrier;
+    readonly ToolTip     _tip;
 
     static readonly string[] CarrierNames = ["(none)", "ini", "png", "bmp", "ico"];
 
@@ -73,117 +79,145 @@ public sealed class MainForm : Form
         ForeColor = FgText;
         Font = new Font("Segoe UI", 9F);
         Icon = SystemIcons.Shield;
-        ClientSize = new Size(460, 700);
+        ClientSize = new Size(FormW, 748);
 
-        var darkMode = 1;
-        DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+        int W = FormW - PadX * 2;   // usable inner width
+        _tip = new ToolTip { AutoPopDelay = 7000, InitialDelay = 500, ReshowDelay = 200 };
 
-        int x = 14, w = 430, row = 14, rh = 28, gap = 6, lblGap = 22;
+        const int Rh = 26, Gap = 6;
+        int y = 14;
 
-        // --- Input file ---
-        _lblInput = MakeLabel("Input file:", x, row);
-        row += lblGap;
-        _txtInput = MakeTextBox(x, row, w - 80);
-        _btnBrowseInput = MakeButton("...", x + w - 74, row, 74, rh);
+        // ── Input file ────────────────────────────────────────────────
+        SectionHeader("Input file", ref y, W);
+        _lblInput = MakeLabel("Payload binary:", PadX, y); y += 20;
+        _txtInput = MakeTextBox(PadX, y, W - 86);
+        _btnBrowseInput = MakeButton("Browse…", PadX + W - 80, y, 80, Rh);
         _btnBrowseInput.Click += BrowseInput;
-        row += rh + gap + 4;
+        _tip.SetToolTip(_txtInput,       "Path to the binary shellcode file to embed.");
+        _tip.SetToolTip(_btnBrowseInput, "Open a file browser.");
+        y += Rh + Gap + 8;
 
-        // --- YAML catalog ---
-        _lblYaml = MakeLabel("YAML catalog:", x, row);
-        row += lblGap;
-        _txtYaml = MakeTextBox(x, row, w - 80);
-        _btnBrowseYaml = MakeButton("...", x + w - 74, row, 74, rh);
+        // ── YAML catalog ──────────────────────────────────────────────
+        SectionHeader("YAML catalog", ref y, W);
+        _lblYaml = MakeLabel("Algorithms catalog:", PadX, y); y += 20;
+        _txtYaml = MakeTextBox(PadX, y, W - 86);
+        _btnBrowseYaml = MakeButton("Browse…", PadX + W - 80, y, 80, Rh);
         _btnBrowseYaml.Click += BrowseYaml;
-        row += rh + gap + 4;
+        _tip.SetToolTip(_txtYaml,       "Path to algos.yaml — defines encoders, envelopes and web helpers.");
+        _tip.SetToolTip(_btnBrowseYaml, "Browse for the YAML catalog.");
+        y += Rh + Gap + 8;
 
-        // --- Encoder / Envelope side by side ---
-        _lblEncoder = MakeLabel("Encoder:", x, row);
-        _lblEnvelope = MakeLabel("Envelope:", x + w / 2 + 4, row);
-        row += lblGap;
-        _cmbEncoder = MakeDarkCombo(x, row, w / 2 - 4);
-        _cmbEnvelope = MakeDarkCombo(x + w / 2 + 4, row, w / 2 - 4);
-        row += rh + gap + 4;
+        // ── Encoding ──────────────────────────────────────────────────
+        SectionHeader("Encoding", ref y, W);
+        int half = (W - 8) / 2;
+        _lblEncoder  = MakeLabel("Encoder:",  PadX,            y);
+        _lblEnvelope = MakeLabel("Envelope:", PadX + half + 8, y);
+        y += 20;
+        _cmbEncoder  = MakeDarkCombo(PadX,            y, half);
+        _cmbEnvelope = MakeDarkCombo(PadX + half + 8, y, half);
+        _tip.SetToolTip(_cmbEncoder,  "Encoding algorithm applied to the raw payload bytes.");
+        _tip.SetToolTip(_cmbEnvelope, "Wrapping layer placed around the encoded bytes.");
+        y += Rh + Gap;
 
-        // --- Web mode ---
         _chkWeb = new CheckBox
         {
-            Text = "Web mode (emit YAML bundle with WinHTTP template)",
-            Location = new Point(x, row),
-            Size = new Size(w, 22),
+            Text = "Web mode — fetch payload at runtime via WinHTTP",
+            Location = new Point(PadX, y),
+            Size = new Size(W, 22),
             FlatStyle = FlatStyle.Flat,
             ForeColor = FgText,
             BackColor = BgDark,
         };
         _chkWeb.CheckedChanged += WebModeToggled;
+        _tip.SetToolTip(_chkWeb, "Emits a WinHTTP fetch stub instead of inlining the payload bytes.");
         Controls.Add(_chkWeb);
-        row += 28 + gap;
+        y += 26 + Gap;
 
-        // --- Web helper ---
-        _lblWebHelper = MakeLabel("Web helper:", x, row);
-        _lblWebHelper.Visible = false;
-        row += lblGap;
-        _cmbWebHelper = MakeDarkCombo(x, row, w);
-        _cmbWebHelper.Visible = false;
-        row += rh + gap + 4;
+        // Always visible; enabled only when web mode is on
+        _lblWebHelper = MakeLabel("Web helper:", PadX, y);
+        _lblWebHelper.Enabled = false;
+        y += 20;
+        _cmbWebHelper = MakeDarkCombo(PadX, y, W);
+        _cmbWebHelper.Enabled = false;
+        _tip.SetToolTip(_lblWebHelper, "HTTP fetch helper template (enable web mode to use).");
+        _tip.SetToolTip(_cmbWebHelper, "HTTP fetch helper template to include in the generated stub.");
+        y += Rh + Gap + 8;
 
-        // --- Carrier (external file spoofing) + Polymorphism seed ---
-        _lblCarrier = MakeLabel("Carrier (external file):", x, row);
-        _lblPoly    = MakeLabel("Polymorphism level:", x + w / 2 + 4, row);
-        row += lblGap;
-        _cmbCarrier = MakeDarkCombo(x, row, w / 2 - 4);
+        // ── Carrier ───────────────────────────────────────────────────
+        SectionHeader("Carrier", ref y, W);
+        _lblCarrier = MakeLabel("Decoy file format:", PadX, y); y += 20;
+        _cmbCarrier = MakeDarkCombo(PadX, y, W);
         foreach (var n in CarrierNames) _cmbCarrier.Items.Add(n);
         _cmbCarrier.SelectedIndex = 0;
-        _cmbPoly = MakeDarkCombo(x + w / 2 + 4, row, w / 2 - 4);
-        _cmbPoly.Items.AddRange(new object[] { "0 (off)", "1 (rename)", "2 (rename + reorder)", "3 (rename + reorder + junk)" });
-        _cmbPoly.SelectedIndex = 1;
-        row += rh + gap + 4;
+        _tip.SetToolTip(_cmbCarrier,
+            "(none)  —  Payload embedded directly in the C++ source.\n" +
+            "ini / png / bmp / ico  —  Payload hidden inside a decoy file;\n" +
+            "the generated C++ reads the carrier at runtime.\n\n" +
+            "Mutually exclusive with web mode.");
+        y += Rh + Gap + 8;
 
-        _lblSeed = MakeLabel("Seed (optional, hex/dec):", x, row);
-        row += lblGap;
-        _txtSeed = MakeTextBox(x, row, w);
-        row += rh + gap + 4;
-
-        // --- Output file ---
-        _lblOutput = MakeLabel("Output file:", x, row);
-        row += lblGap;
-        _txtOutput = MakeTextBox(x, row, w - 80);
-        _btnBrowseOutput = MakeButton("...", x + w - 74, row, 74, rh);
+        // ── Output ────────────────────────────────────────────────────
+        SectionHeader("Output", ref y, W);
+        _lblOutput = MakeLabel("Output file:", PadX, y); y += 20;
+        _txtOutput       = MakeTextBox(PadX, y, W - 176);
+        _btnBrowseOutput = MakeButton("Browse…", PadX + W - 170, y, 82, Rh);
+        _btnCopyOutput   = MakeButton("⎘ Copy",  PadX + W - 82,  y, 82, Rh);
         _btnBrowseOutput.Click += BrowseOutput;
-        row += rh + gap + 8;
+        _btnCopyOutput.Click   += CopyOutputPath;
+        _tip.SetToolTip(_txtOutput,       "Path where the generated C++ snippet will be saved.");
+        _tip.SetToolTip(_btnBrowseOutput, "Choose a save location.");
+        _tip.SetToolTip(_btnCopyOutput,   "Copy the output path to clipboard.");
+        y += Rh + Gap + 10;
 
-        // --- Generate button ---
-        _btnGenerate = MakeButton("GENERATE", x, row, w, 36);
-        _btnGenerate.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        // ── Generate ──────────────────────────────────────────────────
+        _btnGenerate = MakeButton("⚡  GENERATE", PadX, y, W, 40);
+        _btnGenerate.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
         _btnGenerate.BackColor = AccentBlue;
         _btnGenerate.FlatAppearance.BorderColor = AccentBlue;
+        _btnGenerate.FlatAppearance.MouseOverBackColor = AccentHov;
         _btnGenerate.Click += Generate;
-        row += 36 + gap;
+        AcceptButton = _btnGenerate;
+        y += 40 + Gap;
 
-        // --- Status ---
-        _lblStatus = MakeLabel("Ready", x, row);
-        _lblStatus.ForeColor = FgDim;
-        _lblStatus.AutoSize = false;
-        _lblStatus.Size = new Size(w, 18);
-        row += 24;
+        // ── Status ────────────────────────────────────────────────────
+        _lblStatus = new Label
+        {
+            Text = "●  Ready",
+            Location = new Point(PadX, y),
+            Size = new Size(W, 18),
+            ForeColor = FgDim,
+            BackColor = BgDark,
+            AutoSize = false,
+        };
+        Controls.Add(_lblStatus);
+        y += 24;
 
-        // --- Log ---
-        int logH = ClientSize.Height - row - 10;
+        // ── Log ───────────────────────────────────────────────────────
+        MakeLabel("Output log:", PadX, y + 3);
+        _btnClearLog = MakeButton("Clear", PadX + W - 46, y, 46, 22);
+        _btnClearLog.Font = new Font("Segoe UI", 7.5F);
+        _btnClearLog.Click += (_, __) => _txtLog.Clear();
+        y += 28;
+
+        int logH = ClientSize.Height - y - 10;
         _txtLog = new RichTextBox
         {
-            Location = new Point(x, row),
-            Size = new Size(w, logH),
+            Location = new Point(PadX, y),
+            Size = new Size(W, logH),
             ReadOnly = true,
             BackColor = LogBg,
             ForeColor = FgDim,
             BorderStyle = BorderStyle.FixedSingle,
-            Font = new Font("Consolas", 8.25F),
+            Font = new Font("Consolas", 8.5F),
             WordWrap = true,
             ScrollBars = RichTextBoxScrollBars.Vertical,
         };
+        _txtLog.ContextMenuStrip = BuildLogMenu();
         Controls.Add(_txtLog);
 
         ResumeLayout();
 
+        SetDarkTitle(Handle);
         ResolvePaths();
         if (!ValidateRequiredFiles()) return;
         LoadCatalog();
@@ -192,8 +226,76 @@ public sealed class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        var darkMode = 1;
-        DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
+        SetDarkTitle(Handle);
+    }
+
+    static void SetDarkTitle(IntPtr hwnd)
+    {
+        var v = 1;
+        DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref v, sizeof(int));
+    }
+
+    // Colored section header + thin separator line
+    void SectionHeader(string title, ref int y, int w)
+    {
+        var upper = title.ToUpperInvariant();
+        var lbl = new Label
+        {
+            Text = upper,
+            Location = new Point(PadX, y),
+            AutoSize = true,
+            ForeColor = FgSection,
+            BackColor = BgDark,
+            Font = new Font("Segoe UI", 7.25F, FontStyle.Bold),
+        };
+        Controls.Add(lbl);
+        // Measure after AutoSize resolves via PreferredWidth
+        int sepX = PadX + lbl.PreferredWidth + 8;
+        var sep = new Panel
+        {
+            Location = new Point(sepX, y + 7),
+            Size = new Size(w - lbl.PreferredWidth - 8, 1),
+            BackColor = SepColor,
+        };
+        Controls.Add(sep);
+        y += 18;
+    }
+
+    // Dark-themed right-click menu for the log box
+    ContextMenuStrip BuildLogMenu()
+    {
+        var cms = new ContextMenuStrip { Renderer = new DarkMenuRenderer() };
+        var copy    = new ToolStripMenuItem("Copy selection"); copy.Click    += (_, __) => _txtLog.Copy();
+        var copyAll = new ToolStripMenuItem("Copy all");       copyAll.Click += (_, __) => { if (_txtLog.Text.Length > 0) Clipboard.SetText(_txtLog.Text); };
+        var clear   = new ToolStripMenuItem("Clear");          clear.Click   += (_, __) => _txtLog.Clear();
+        cms.Items.AddRange([copy, copyAll, new ToolStripSeparator(), clear]);
+        return cms;
+    }
+
+    sealed class DarkMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public DarkMenuRenderer() : base(new DarkColorTable()) { }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        { e.TextColor = Color.FromArgb(212, 212, 212); base.OnRenderItemText(e); }
+    }
+
+    sealed class DarkColorTable : ProfessionalColorTable
+    {
+        public override Color MenuItemSelected                => Color.FromArgb(0, 122, 204);
+        public override Color MenuItemSelectedGradientBegin   => Color.FromArgb(0, 122, 204);
+        public override Color MenuItemSelectedGradientEnd     => Color.FromArgb(0, 122, 204);
+        public override Color MenuBorder                      => Color.FromArgb(65, 65, 65);
+        public override Color ToolStripDropDownBackground     => Color.FromArgb(44, 44, 44);
+        public override Color ImageMarginGradientBegin        => Color.FromArgb(44, 44, 44);
+        public override Color ImageMarginGradientMiddle       => Color.FromArgb(44, 44, 44);
+        public override Color ImageMarginGradientEnd          => Color.FromArgb(44, 44, 44);
+        public override Color MenuItemBorder                  => Color.FromArgb(0, 122, 204);
+    }
+
+    void CopyOutputPath(object? s, EventArgs e)
+    {
+        var p = _txtOutput.Text.Trim();
+        if (p.Length > 0) Clipboard.SetText(p);
     }
 
     void ResolvePaths()
@@ -236,8 +338,6 @@ public sealed class MainForm : Form
 
     bool ValidateRequiredFiles()
     {
-        var missing = new List<string>();
-
         if (string.IsNullOrEmpty(_scriptDir))
         {
             var exeDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
@@ -246,7 +346,7 @@ public sealed class MainForm : Form
                 "The following files must be in the same folder as this executable:\n" +
                 string.Join("\n", RequiredFiles.Select(f => "  - " + f)) +
                 "\n\nLooked in: " + exeDir,
-                "bin2shell - Missing Files",
+                "bin2shell — Missing Files",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             _btnGenerate.Enabled = false;
@@ -254,12 +354,9 @@ public sealed class MainForm : Form
             return false;
         }
 
-        foreach (var rel in RequiredFiles)
-        {
-            var full = Path.Combine(_scriptDir, rel);
-            if (!File.Exists(full))
-                missing.Add(rel);
-        }
+        var missing = RequiredFiles
+            .Where(rel => !File.Exists(Path.Combine(_scriptDir, rel)))
+            .ToList();
 
         if (missing.Count > 0)
         {
@@ -268,7 +365,7 @@ public sealed class MainForm : Form
                 string.Join("\n", missing.Select(f => "  - " + f)) +
                 "\n\nThey should be in the same folder as this executable:\n" +
                 _scriptDir,
-                "bin2shell - Missing Files",
+                "bin2shell — Missing Files",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             _btnGenerate.Enabled = false;
@@ -344,8 +441,8 @@ print(json.dumps(out))
             _cmbWebHelper.Items.Add("[0] winhttp");
         }
 
-        if (_cmbEncoder.Items.Count > 0) _cmbEncoder.SelectedIndex = 0;
-        if (_cmbEnvelope.Items.Count > 0) _cmbEnvelope.SelectedIndex = 0;
+        if (_cmbEncoder.Items.Count > 0)   _cmbEncoder.SelectedIndex = 0;
+        if (_cmbEnvelope.Items.Count > 0)  _cmbEnvelope.SelectedIndex = 0;
         if (_cmbWebHelper.Items.Count > 0) _cmbWebHelper.SelectedIndex = 0;
     }
 
@@ -407,12 +504,8 @@ print(json.dumps(out))
             args.AddRange(["--carrier-out", carrierPath]);
         }
 
-        var polyLevel = _cmbPoly.SelectedIndex; // 0..3, matches CLI --poly
-        args.AddRange(["--poly", polyLevel.ToString()]);
-
-        var seedText = _txtSeed.Text.Trim();
-        if (!string.IsNullOrEmpty(seedText))
-            args.AddRange(["--seed", seedText]);
+        // Hardcode poly level 1 (rename internals) — no UI control exposed
+        args.AddRange(["--poly", "1"]);
 
         args.AddRange(["-o", outputPath]);
         args.Add(inputPath);
@@ -422,7 +515,8 @@ print(json.dumps(out))
             Directory.CreateDirectory(outDir);
 
         _btnGenerate.Enabled = false;
-        SetStatus("Generating...", true);
+        _btnGenerate.Text = "⏳  Generating…";
+        SetStatus("Generating…", true);
         _txtLog.Clear();
 
         try
@@ -446,7 +540,7 @@ print(json.dumps(out))
             var sbOut = new StringBuilder();
             var sbErr = new StringBuilder();
             proc.OutputDataReceived += (_, d) => { if (d.Data != null) sbOut.AppendLine(d.Data); };
-            proc.ErrorDataReceived += (_, d) => { if (d.Data != null) sbErr.AppendLine(d.Data); };
+            proc.ErrorDataReceived  += (_, d) => { if (d.Data != null) sbErr.AppendLine(d.Data); };
 
             proc.Start();
             proc.BeginOutputReadLine();
@@ -459,7 +553,7 @@ print(json.dumps(out))
             if (proc.ExitCode == 0)
             {
                 var fi = new FileInfo(outputPath);
-                SetStatus($"Done \u2014 {fi.Length:N0} bytes written to {fi.Name}", true);
+                SetStatus($"Done — {fi.Length:N0} bytes → {fi.Name}", true);
                 Log($"Output: {outputPath}");
             }
             else
@@ -470,7 +564,11 @@ print(json.dumps(out))
             SetStatus("Error: " + ex.Message, false);
             Log(ex.ToString());
         }
-        finally { _btnGenerate.Enabled = true; }
+        finally
+        {
+            _btnGenerate.Enabled = true;
+            _btnGenerate.Text = "⚡  GENERATE";
+        }
     }
 
     string DefaultOutputPath(string inputPath)
@@ -522,22 +620,19 @@ print(json.dumps(out))
 
     void WebModeToggled(object? s, EventArgs e)
     {
-        _lblWebHelper.Visible = _chkWeb.Checked;
-        _cmbWebHelper.Visible = _chkWeb.Checked;
+        _lblWebHelper.Enabled = _chkWeb.Checked;
+        _cmbWebHelper.Enabled = _chkWeb.Checked;
     }
 
     void SetStatus(string msg, bool ok)
     {
-        _lblStatus.Text = msg;
+        _lblStatus.Text = "●  " + msg;
         _lblStatus.ForeColor = ok ? GreenOk : RedErr;
     }
 
-    void Log(string msg)
-    {
-        _txtLog.AppendText(msg + Environment.NewLine);
-    }
+    void Log(string msg) => _txtLog.AppendText(msg + Environment.NewLine);
 
-    // --- Factory helpers ---
+    // ── Factory helpers ───────────────────────────────────────────────
 
     Label MakeLabel(string text, int x, int y)
     {
@@ -558,7 +653,7 @@ print(json.dumps(out))
         var tb = new TextBox
         {
             Location = new Point(x, y),
-            Size = new Size(w, 28),
+            Size = new Size(w, 26),
             BackColor = BgField,
             ForeColor = FgText,
             BorderStyle = BorderStyle.FixedSingle,
@@ -575,7 +670,7 @@ print(json.dumps(out))
             Location = new Point(x, y),
             Size = new Size(w, h),
             FlatStyle = FlatStyle.Flat,
-            BackColor = BgControl,
+            BackColor = BgButton,
             ForeColor = FgText,
             Cursor = Cursors.Hand,
         };
@@ -601,13 +696,14 @@ print(json.dumps(out))
         cmb.DrawItem += (s, e) =>
         {
             if (e.Index < 0) return;
-            var bg = (e.State & DrawItemState.Selected) != 0 ? AccentBlue : BgField;
+            var isSelected = (e.State & DrawItemState.Selected) != 0;
+            var bg = isSelected ? AccentBlue : BgField;
             using var bgBrush = new SolidBrush(bg);
-            using var fgBrush = new SolidBrush(FgText);
+            using var fgBrush = new SolidBrush(cmb.Enabled ? FgText : FgDim);
             e.Graphics.FillRectangle(bgBrush, e.Bounds);
             var text = cmb.Items[e.Index]?.ToString() ?? "";
             e.Graphics.DrawString(text, cmb.Font, fgBrush,
-                new RectangleF(e.Bounds.X + 4, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height));
+                new RectangleF(e.Bounds.X + 6, e.Bounds.Y + 2, e.Bounds.Width - 8, e.Bounds.Height));
         };
         Controls.Add(cmb);
         return cmb;

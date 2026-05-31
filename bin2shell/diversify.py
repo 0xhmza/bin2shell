@@ -1,5 +1,5 @@
 """
-Polymorphism layer for bin2shell-generated C++.
+Source diversification for bin2shell-generated C++.
 
 Goal: a different-looking source file each run, even with identical inputs.
 The public contract is unchanged — the emitted source still exposes
@@ -10,9 +10,9 @@ code vary between runs.
 
 Two knobs are surfaced:
 
-* ``Polymorphism(seed=...)`` — fix the random sequence for reproducible
+* ``Diversifier(seed=...)`` — fix the random sequence for reproducible
   builds (CI smoke tests, golden snapshots).
-* ``Polymorphism(level=...)`` — 0 (off), 1 (rename internal symbols),
+* ``Diversifier(level=...)`` — 0 (off), 1 (rename internal symbols),
   2 (rename + reorder), 3 (rename + reorder + insert junk locals in the
   initializer lambda).
 
@@ -27,7 +27,6 @@ from __future__ import annotations
 import os
 import random
 import re
-import string
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -56,20 +55,55 @@ INTERNAL_SYMBOLS = (
 KEY_SUFFIX_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*?)(_key|_nonce|_iv|_salt|_round)\b")
 
 
-_IDENT_CHARS = string.ascii_lowercase + string.digits
+_TECHNICAL_WORDS = (
+    "buffer", "context", "handle", "stream", "offset", "segment", "frame",
+    "token", "cursor", "index", "counter", "state", "cache", "node", "entry",
+    "slot", "chunk", "block", "queue", "stack", "depth", "stride", "margin",
+    "layer", "filter", "vertex", "sample", "region", "extent", "phase",
+    "epoch", "batch", "pivot", "delta", "threshold", "capacity", "weight",
+    "interval", "timeout", "channel", "socket", "packet", "header", "field",
+    "record", "column", "digest", "seed", "vector", "scalar", "tensor",
+    "matrix", "kernel", "module", "driver", "adapter", "bridge", "proxy",
+    "factory", "builder", "parser", "scanner", "lexer", "mapper", "reducer",
+    "visitor", "handler", "emitter", "decoder", "encoder", "resolver",
+    "provider", "manager", "tracker", "monitor", "watcher", "listener",
+    "dispatch", "pipeline", "sequence", "iterator", "allocator", "layout",
+    "section", "surface", "texture", "sampler", "viewport", "canvas",
+    "polygon", "contour", "gradient", "palette", "density", "volume",
+    "cluster", "anchor", "origin", "target", "source", "result", "output",
+    "metric", "signal", "fence", "barrier", "mutex", "spinlock", "hazard",
+    "fiber", "thread", "worker", "slab", "arena", "pool", "bucket",
+    "register", "opcode", "operand", "literal", "constant", "binding",
+)
+
+_IDENT_STYLES = (
+    lambda words: "_".join(words),                         # snake_case
+    lambda words: words[0] + "".join(w.title() for w in words[1:]),  # camelCase
+)
 
 
-def _new_ident(rng: random.Random, prefix: str = "_v") -> str:
-    """Generate a random C identifier that won't collide with C++ keywords.
+def _new_ident(rng: random.Random, prefix: str = "_", seen: Optional[set] = None) -> str:
+    """Generate a random C identifier from technical English words.
 
-    Always starts with an underscore so it never matches a keyword or
-    Win32/CRT public symbol.
+    Produces names like ``buffer_context``, ``_streamOffset``, etc.
+    that blend in with real source while remaining collision-free.
     """
-    return prefix + "".join(rng.choices(_IDENT_CHARS, k=rng.randint(5, 8)))
+    for _ in range(50):
+        n = rng.randint(1, 2)
+        words = rng.sample(_TECHNICAL_WORDS, k=n)
+        style = rng.choice(_IDENT_STYLES)
+        name = style(words)
+        if prefix and not name.startswith("_"):
+            name = prefix + name
+        if seen is None or name not in seen:
+            if seen is not None:
+                seen.add(name)
+            return name
+    return prefix + "fallback" + str(rng.randint(1000, 9999))
 
 
 @dataclass
-class Polymorphism:
+class Diversifier:
     """Configuration + helpers for per-run source-level diversification."""
 
     seed: Optional[int] = None
@@ -102,9 +136,10 @@ class Polymorphism:
         if self.level <= 0:
             return source
 
+        seen: set = set()
         mapping: Dict[str, str] = {}
         for sym in INTERNAL_SYMBOLS:
-            mapping[sym] = _new_ident(self.rng, prefix="_b")
+            mapping[sym] = _new_ident(self.rng, prefix="_", seen=seen)
 
         # Discover dynamic key/nonce/iv variables in the source so each
         # one gets a consistent fresh name. Walk in declaration order so
@@ -113,7 +148,7 @@ class Polymorphism:
             full = match.group(0)
             if full in mapping or full in INTERNAL_SYMBOLS:
                 continue
-            mapping[full] = _new_ident(self.rng, prefix="_k")
+            mapping[full] = _new_ident(self.rng, prefix="_", seen=seen)
             mapping[f"{full}_len"] = mapping[full] + "_len"
 
         # Whole-word substitution, longest-first so foo_key_len isn't
@@ -131,3 +166,6 @@ class Polymorphism:
         knob, while the seed alone is enough to reproduce the output.
         """
         return f"// bin2shell — generated with seed {self.seed:#018x}\n"
+
+
+Polymorphism = Diversifier
