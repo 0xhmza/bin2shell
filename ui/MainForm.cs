@@ -63,7 +63,7 @@ public sealed class MainForm : Form
     static readonly string[] RequiredFiles = [
         "main.py",
         Path.Combine("bin2shell", "cli.py"),
-        Path.Combine("bin2shell", "catalog.py"),
+        Path.Combine("bin2shell", "playbook.py"),
         Path.Combine("data", "yaml", "algos.yaml"),
     ];
 
@@ -97,14 +97,14 @@ public sealed class MainForm : Form
         _tip.SetToolTip(_btnBrowseInput, "Open a file browser.");
         y += Rh + Gap + 8;
 
-        // ── YAML catalog ──────────────────────────────────────────────
-        SectionHeader("YAML catalog", ref y, W);
-        _lblYaml = MakeLabel("Algorithms catalog:", PadX, y); y += 20;
+        // ── YAML playbook ─────────────────────────────────────────────
+        SectionHeader("YAML playbook", ref y, W);
+        _lblYaml = MakeLabel("Algorithms playbook:", PadX, y); y += 20;
         _txtYaml = MakeTextBox(PadX, y, W - 86);
         _btnBrowseYaml = MakeButton("Browse…", PadX + W - 80, y, 80, Rh);
         _btnBrowseYaml.Click += BrowseYaml;
         _tip.SetToolTip(_txtYaml,       "Path to algos.yaml — defines encoders, envelopes and web helpers.");
-        _tip.SetToolTip(_btnBrowseYaml, "Browse for the YAML catalog.");
+        _tip.SetToolTip(_btnBrowseYaml, "Browse for the YAML playbook.");
         y += Rh + Gap + 8;
 
         // ── Encoding ──────────────────────────────────────────────────
@@ -504,9 +504,6 @@ print(json.dumps(out))
             args.AddRange(["--carrier-out", carrierPath]);
         }
 
-        // Hardcode poly level 1 (rename internals) — no UI control exposed
-        args.AddRange(["--poly", "1"]);
-
         args.AddRange(["-o", outputPath]);
         args.Add(inputPath);
 
@@ -608,7 +605,7 @@ print(json.dumps(out))
     {
         using var dlg = new OpenFileDialog
         {
-            Title = "Select algorithms YAML",
+            Title = "Select algorithms playbook",
             Filter = "YAML files (*.yaml;*.yml)|*.yaml;*.yml|All files (*.*)|*.*",
         };
         if (dlg.ShowDialog() == DialogResult.OK)

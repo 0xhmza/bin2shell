@@ -1,6 +1,6 @@
 __all__ = [
     "carriers",
-    "catalog",
+    "playbook",
     "cli",
     "formatting",
     "diversify",

@@ -358,7 +358,7 @@ def get_carrier(key) -> Carrier:
 
 
 def list_carriers() -> List[Dict[str, object]]:
-    """Catalog-style listing for CLI --help output."""
+    """Playbook-style listing for CLI --help output."""
     return [
         {
             "index": c.index, "name": c.name,

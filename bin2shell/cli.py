@@ -20,9 +20,8 @@ from .carriers import (
     list_carriers,
     render_carrier_cpp,
 )
-from .catalog import Catalog
+from .playbook import Playbook
 from .formatting import make_c_array, make_c_bstring, make_len_var, safe_format_cpp
-from .diversify import Diversifier
 from .utils import get_terminal_width, read_file
 
 
@@ -31,10 +30,10 @@ PLACEHOLDER_TOKEN = "__PAYLOAD_PLACEHOLDER__"
 CARRIER_PAYLOAD_VAR = "__carrier_payload"
 
 
-def _web_fetch_helper_block(catalog: "Catalog", web_helper_idx: int) -> str:
-    spec = catalog.web_helpers.get(web_helper_idx)
+def _web_fetch_helper_block(playbook: "Playbook", web_helper_idx: int) -> str:
+    spec = playbook.web_helpers.get(web_helper_idx)
     if not spec:
-        raise CLIError(f"Web helper index {web_helper_idx} not found in catalog")
+        raise CLIError(f"Web helper index {web_helper_idx} not found in playbook")
     name = spec.get("name", "unknown")
     parts = [
         f"// --- web helper: {name} ---\n",
@@ -84,8 +83,6 @@ class CLIArgs:
     carrier: Optional[str] = None
     carrier_out: Optional[str] = None
     carrier_runtime_path: Optional[str] = None
-    seed: Optional[int] = None
-    polymorphism_level: int = 1
 
 
 @dataclass
@@ -94,9 +91,8 @@ class GenerationContext:
     payload_bytes: Optional[bytes]
     payload_text: Optional[str]
     options_meta: Dict[str, Any]
-    catalog: Optional["Catalog"] = None
+    playbook: Optional["Playbook"] = None
     web_helper_index: int = 0
-    polymorphism: Optional[Diversifier] = None
 
 
 def _make_web_payload_array(name: str, expected_len: int) -> str:
@@ -172,7 +168,7 @@ def _render_sections(
     web_mode: bool,
     term_width: int,
     placeholder: str,
-    catalog: Optional["Catalog"] = None,
+    playbook: Optional["Playbook"] = None,
     web_helper_idx: int = 0,
 ) -> str:
     chunks: List[str] = []
@@ -193,10 +189,10 @@ def _render_sections(
                 raw_open = False
             if web_mode:
                 if not helpers_injected:
-                    if catalog and catalog.web_helpers:
-                        chunks.append(_web_fetch_helper_block(catalog, web_helper_idx))
+                    if playbook and playbook.web_helpers:
+                        chunks.append(_web_fetch_helper_block(playbook, web_helper_idx))
                     else:
-                        raise CLIError("Web mode requires web_helpers in YAML catalog")
+                        raise CLIError("Web mode requires web_helpers in YAML playbook")
                     helpers_injected = True
                 name = meta["name"]
                 expected_len = len(meta.get("data", b""))
@@ -215,10 +211,10 @@ def _render_sections(
                 raw_open = False
             if web_mode:
                 if not helpers_injected:
-                    if catalog and catalog.web_helpers:
-                        chunks.append(_web_fetch_helper_block(catalog, web_helper_idx))
+                    if playbook and playbook.web_helpers:
+                        chunks.append(_web_fetch_helper_block(playbook, web_helper_idx))
                     else:
-                        raise CLIError("Web mode requires web_helpers in YAML catalog")
+                        raise CLIError("Web mode requires web_helpers in YAML playbook")
                     helpers_injected = True
                 name = meta["name"]
                 expected_len = len(meta.get("text", ""))
@@ -298,12 +294,12 @@ def _resolve_yaml_path(provided: Optional[str]) -> str:
     return os.path.abspath(os.path.join(here, os.pardir, DEFAULT_YAML_REL))
 
 
-def _catalog_epilog(yaml_path: str) -> str:
+def _playbook_epilog(yaml_path: str) -> str:
     lines: List[str] = []
     try:
         if os.path.isfile(yaml_path):
             with open(yaml_path, "r", encoding="utf-8") as fh:
-                cat = Catalog(yaml.safe_load(fh))
+                cat = Playbook(yaml.safe_load(fh))
             lines.append("available encoders:")
             for spec in cat.list_block("encoders"):
                 idx = spec.get("index", "?")
@@ -334,7 +330,7 @@ def _catalog_epilog(yaml_path: str) -> str:
             lines.append("")
             lines.append(f"defaults: encoder={cat.default_index('encoders')}, envelope={cat.default_index('envelopes')}")
     except Exception:
-        lines.append(f"(could not load catalog from {yaml_path})")
+        lines.append(f"(could not load playbook from {yaml_path})")
     return "\n".join(lines)
 
 
@@ -346,7 +342,7 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
     #   POSIX long:  --encoder 2    (kebab-case, double dash)
     # All three are aliases for the same destination; they're documented
     # together in the help text.
-    epilog = _catalog_epilog(yaml_path)
+    epilog = _playbook_epilog(yaml_path)
     parser = argparse.ArgumentParser(
         prog="bin2shell",
         description="Convert binary files to C/C++ source that reconstructs the original bytes at runtime.",
@@ -386,12 +382,6 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
                         dest="carrier_runtime_path", default=None, metavar="EXPR",
                         help="C++ expression evaluating to the runtime carrier path "
                              '(default: basename of --carrier-out as a string literal)')
-    parser.add_argument("-Seed", "--seed", dest="seed",
-                        type=lambda s: int(s, 0), default=None, metavar="N",
-                        help="seed the polymorphism RNG for reproducible builds (accepts 0x… hex)")
-    parser.add_argument("-Poly", "--poly", dest="poly",
-                        type=int, choices=[0, 1, 2, 3], default=1, metavar="L",
-                        help="polymorphism level: 0 off, 1 rename internals (default), 2 + reorder, 3 + junk")
     parser.add_argument("-o", "-Output", "--output", dest="output", default=None, metavar="FILE",
                         help="write output to FILE instead of stdout")
 
@@ -402,7 +392,7 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
 
 
 def _parse_args(argv: List[str]) -> CLIArgs:
-    # Look ahead for the YAML path so the help epilog can list the catalog
+    # Look ahead for the YAML path so the help epilog can list the playbook
     # entries from the file the caller actually intends to use. Accept every
     # alias form here too, otherwise -Yaml/--yaml wouldn't influence the
     # epilog.
@@ -434,8 +424,6 @@ def _parse_args(argv: List[str]) -> CLIArgs:
         carrier=ns.carrier,
         carrier_out=ns.carrier_out,
         carrier_runtime_path=ns.carrier_runtime_path,
-        seed=ns.seed,
-        polymorphism_level=ns.poly,
     )
 
 
@@ -446,10 +434,10 @@ def _load_binary(path: str) -> bytes:
         raise CLIError(f"Error: Could not open file {path}: {exc}")
 
 
-def _load_catalog(yaml_path: str) -> Catalog:
+def _load_playbook(yaml_path: str) -> Playbook:
     try:
         with open(yaml_path, "r", encoding="utf-8") as handle:
-            return Catalog(yaml.safe_load(handle))
+            return Playbook(yaml.safe_load(handle))
     except Exception as exc:
         raise CLIError(f"Error: failed to load/validate YAML: {exc}")
 
@@ -460,31 +448,31 @@ def _build_simple_context(data: bytes) -> GenerationContext:
         Section("len_var", {"name": "code_blob", "value": len(data), "payload_name": "code_blob"}),
     ]
     options_meta = {
-        "encoder": {"index": None, "name": "none"},
-        "envelope": {"index": None, "name": "none"},
+        "encoder": {"index": None, "name": "passthrough"},
+        "envelope": {"index": None, "name": "bare_bytes"},
     }
     return GenerationContext(sections, payload_bytes=data, payload_text=None, options_meta=options_meta)
 
 
-def _build_catalog_context(
+def _build_playbook_context(
     args: CLIArgs,
     data: bytes,
-    catalog: Catalog,
+    playbook: Playbook,
     yaml_path: str,
 ) -> GenerationContext:
     sections: List[Section] = []
 
-    enc_idx = args.encoder_index if args.encoder_index is not None else catalog.default_index("encoders")
-    env_idx = args.envelope_index if args.envelope_index is not None else catalog.default_index("envelopes")
+    enc_idx = args.encoder_index if args.encoder_index is not None else playbook.default_index("encoders")
+    env_idx = args.envelope_index if args.envelope_index is not None else playbook.default_index("envelopes")
 
     try:
-        enc_bytes, keys_dict, _enc_emit, enc_spec = catalog.run_encode(enc_idx, data)
+        enc_bytes, keys_dict, _enc_emit, enc_spec = playbook.run_encode(enc_idx, data)
     except Exception as exc:
         raise CLIError(f"Encode error (index {enc_idx}): {exc}")
 
-    env_spec = catalog.envelopes.get(env_idx)
+    env_spec = playbook.envelopes.get(env_idx)
     if not env_spec:
-        raise CLIError(f"Envelope error (index {env_idx}): not found in catalog")
+        raise CLIError(f"Envelope error (index {env_idx}): not found in playbook")
 
     envelope_name = str(env_spec.get("name", "")).lower()
     payload_bytes: Optional[bytes]
@@ -496,7 +484,7 @@ def _build_catalog_context(
 
     sections.append(Section("len_var", {"name": "code_blob_expected", "value": len(data)}))
 
-    if envelope_name == "none":
+    if envelope_name in ("none", "bare_bytes"):
         sections.append(Section("payload_array", {"name": "enc_buf", "data": enc_bytes}))
         sections.append(
             Section(
@@ -511,7 +499,7 @@ def _build_catalog_context(
         payload_bytes = enc_bytes
     else:
         try:
-            envelope_text, _env_emit, env_spec = catalog.run_envelope(env_idx, enc_bytes)
+            envelope_text, _env_emit, env_spec = playbook.run_envelope(env_idx, enc_bytes)
         except Exception as exc:
             raise CLIError(f"Envelope error (index {env_idx}): {exc}")
         sections.append(Section("payload_string", {"name": "code_blob_text", "text": envelope_text}))
@@ -540,7 +528,7 @@ def _build_catalog_context(
 
     comment = (
         "// ---- no encoding: enc_buf becomes code_blob ----"
-        if enc_name == "none"
+        if enc_name in ("none", "passthrough")
         else "// ---- inline inverse encoding ----"
     )
     sections.append(Section("raw", {"text": "\n" + comment + "\n"}))
@@ -572,11 +560,11 @@ def _format_payload_bytes(payload: bytes, group: int = 16) -> str:
 def _emit_web(context: GenerationContext, term_width: int) -> None:
     if context.payload_bytes is None:
         raise CLIError("Error: payload unavailable for web output")
-    catalog = context.catalog
-    if not catalog or not catalog.web_helpers:
-        raise CLIError("Web mode requires web_helpers in YAML catalog")
+    playbook = context.playbook
+    if not playbook or not playbook.web_helpers:
+        raise CLIError("Web mode requires web_helpers in YAML playbook")
 
-    wh_spec = catalog.web_helpers.get(context.web_helper_index)
+    wh_spec = playbook.web_helpers.get(context.web_helper_index)
     if not wh_spec:
         raise CLIError(f"Web helper index {context.web_helper_index} not found")
 
@@ -688,10 +676,8 @@ def _emit_web(context: GenerationContext, term_width: int) -> None:
 def _emit_native(context: GenerationContext, term_width: int) -> None:
     code_output = _normalize_newlines(
         _render_sections(context.sections, False, term_width, PLACEHOLDER_TOKEN,
-                         catalog=context.catalog, web_helper_idx=context.web_helper_index)
+                         playbook=context.playbook, web_helper_idx=context.web_helper_index)
     )
-    if context.polymorphism is not None and context.polymorphism.level > 0:
-        code_output = context.polymorphism.header_banner() + context.polymorphism.rename_internals(code_output)
     sys.stdout.write(code_output)
 
 
@@ -727,7 +713,7 @@ def _apply_carrier(
         fh.write(carrier_bytes)
 
     runtime_path_expr = args.carrier_runtime_path or f'"{os.path.basename(carrier_out_path)}"'
-    target_var = "enc_buf" if envelope_name == "none" else "code_blob_text"
+    target_var = "enc_buf" if envelope_name in ("none", "bare_bytes") else "code_blob_text"
 
     # Filter out inline payload sections; carrier replaces them.
     drop_names = {"code_blob_text", "enc_buf"}
@@ -776,14 +762,14 @@ def main(argv: List[str]) -> int:
         data = _load_binary(args.input_path)
         term_width = max(40, get_terminal_width())
 
-        needs_catalog = (
+        needs_playbook = (
             args.yaml_override is not None
             or args.encoder_index is not None
             or args.envelope_index is not None
             or args.web_mode
             or args.carrier is not None
         )
-        if not needs_catalog:
+        if not needs_playbook:
             context = _build_simple_context(data)
         else:
             yaml_path = _resolve_yaml_path(args.yaml_override)
@@ -791,13 +777,13 @@ def main(argv: List[str]) -> int:
                 raise CLIError(
                     f"Error: YAML not found. Expected at '{yaml_path}'. Pass with -y if different."
                 )
-            catalog = _load_catalog(yaml_path)
-            web_helper_idx = args.web_helper_index if args.web_helper_index is not None else catalog.default_index("web_helpers") if catalog.web_helpers else 0
+            playbook = _load_playbook(yaml_path)
+            web_helper_idx = args.web_helper_index if args.web_helper_index is not None else playbook.default_index("web_helpers") if playbook.web_helpers else 0
             if args.encoder_index is None and args.envelope_index is None and not args.web_mode and args.carrier is None:
                 context = _build_simple_context(data)
             else:
-                context = _build_catalog_context(args, data, catalog, yaml_path)
-            context.catalog = catalog
+                context = _build_playbook_context(args, data, playbook, yaml_path)
+            context.playbook = playbook
             context.web_helper_index = web_helper_idx
 
         if args.carrier is not None:
@@ -805,8 +791,8 @@ def main(argv: List[str]) -> int:
                 raise CLIError("--carrier and --web are mutually exclusive (carrier loads from disk; web fetches over HTTP)")
             if context.payload_bytes is None and context.payload_text is None:
                 raise CLIError("Carrier mode requires an encoder/envelope pipeline.")
-            envelope_name = str(context.options_meta.get("envelope", {}).get("name", "none")).lower()
-            if envelope_name == "none":
+            envelope_name = str(context.options_meta.get("envelope", {}).get("name", "bare_bytes")).lower()
+            if envelope_name in ("none", "bare_bytes"):
                 payload_for_carrier = context.payload_bytes or b""
             else:
                 payload_for_carrier = (context.payload_text or "").encode("utf-8")
@@ -819,12 +805,6 @@ def main(argv: List[str]) -> int:
             sys.stderr.write(
                 f"Carrier '{args.carrier}' written to {carrier_path} ({len(carrier_bytes)} bytes)\n"
             )
-
-        context.polymorphism = Diversifier(seed=args.seed, level=args.polymorphism_level)
-        context.options_meta["polymorphism"] = {
-            "seed": context.polymorphism.seed,
-            "level": context.polymorphism.level,
-        }
 
         out_fd = None
         if args.output_path:

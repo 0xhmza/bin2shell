@@ -303,7 +303,7 @@ def render_report(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Test bin2shell web mode across all catalog combinations.")
+    parser = argparse.ArgumentParser(description="Test bin2shell web mode across all playbook combinations.")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Input binary to test.")
     parser.add_argument("--yaml", dest="yaml_path", default=DEFAULT_YAML, help="Path to algos.yaml.")
     parser.add_argument("--out", dest="out_path", default=DEFAULT_REPORT, help="HTML report output path.")
@@ -327,7 +327,7 @@ def main() -> int:
 
     encoders, envelopes, web_helpers = load_specs(yaml_path)
     if not web_helpers:
-        sys.stderr.write("Error: no web_helpers found in YAML catalog\n")
+        sys.stderr.write("Error: no web_helpers found in YAML playbook\n")
         return 1
 
     cases = build_cases(encoders, envelopes, web_helpers, input_path)

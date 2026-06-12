@@ -10,7 +10,7 @@ REQUIRED_FIELDS = {
 }
 
 
-class Catalog:
+class Playbook:
     def __init__(self, y: Dict[str, Any]):
         self.y = y or {}
         self.encoders: Dict[int, Dict[str, Any]] = {}
@@ -120,7 +120,7 @@ class Catalog:
         if not spec:
             raise RuntimeError(f"Unknown encoder index '{idx}'")
         name = spec.get("name", "")
-        if name.lower() == "none":
+        if name.lower() in ("none", "passthrough"):
             return data, {}, {}, spec
         keys = self._maybe_keys(spec)
         encode = self._exec_snippet(spec["python_snippet"], "encode", {})

@@ -1,16 +1,16 @@
-# Project catalog moved under data/yaml
+# Project playbook — algorithm definitions for bin2shell
 encoders:
 - index: 0
-  name: none
-  desc: No extra encoding
+  name: passthrough
+  desc: Pass-through identity — raw bytes, no encoding applied
   python_snippet: |
     def encode(data: bytes, key: str = "") -> bytes:
         return data
   cpp_inverse: |
     // No additional decoding
 - index: 1
-  name: xor42
-  desc: Simple XOR with 0x42
+  name: static_xor_0x42
+  desc: Static single-byte XOR mask — each byte XORed with the constant 0x42
   python_snippet: |
     def encode(data: bytes, key: str = "") -> bytes:
         return bytes(b ^ 0x42 for b in data)
@@ -20,8 +20,8 @@ encoders:
         enc_buf[i] ^= 0x42;
     }
 - index: 2
-  name: rc4
-  desc: RC4 encryption (key "bin2shell") over hex
+  name: rc4_static
+  desc: RC4 stream cipher with hard-coded 9-byte key — lightweight symmetric encryption
   python_snippet: |
     def encode(data: bytes, key: str = "bin2shell") -> bytes:
         key = key.encode()
@@ -55,8 +55,8 @@ encoders:
         enc_buf[i] ^= S[(S[x] + S[y]) % 256];
     }
 - index: 3
-  name: xor_key
-  desc: 'Multi-byte repeating XOR (key: "secret")'
+  name: xor_static_key
+  desc: Multi-byte repeating XOR — each byte XORed with a cycled static key string
   python_snippet: |
     def encode(data: bytes, key: str = "secret") -> bytes:
         key_bytes = key.encode()
@@ -69,8 +69,8 @@ encoders:
         enc_buf[i] ^= xor_key[i % xor_key_len];
     }
 - index: 4
-  name: caesar
-  desc: Simple Caesar Add-13 operation
+  name: additive_shift_13
+  desc: Additive shift cipher — each byte incremented by 13 (modulo 256), classical Caesar variant
   python_snippet: |
     def encode(data: bytes, key: str = "") -> bytes:
         return bytes((b + 13) % 256 for b in data)
@@ -80,8 +80,8 @@ encoders:
         enc_buf[i] = (unsigned char)((enc_buf[i] - 13 + 256) % 256);
     }
 - index: 5
-  name: rol3
-  desc: Bitwise Rotate Left by 3
+  name: bit_rotate_left_3
+  desc: Bitwise left rotation by 3 positions — each byte circular-shifted 3 bits left
   python_snippet: |
     def encode(data: bytes, key: str = "") -> bytes:
         return bytes(((b << 3) & 0xFF) | (b >> 5) for b in data)
@@ -91,8 +91,8 @@ encoders:
         enc_buf[i] = (unsigned char)((enc_buf[i] >> 3) | ((enc_buf[i] & 0x07) << 5));
     }
 - index: 6
-  name: rc4_random
-  desc: RC4 with per-build random 16-byte key (replaces legacy fixed-key rc4)
+  name: rc4_dynamic
+  desc: RC4 stream cipher with per-build cryptographically random 16-byte key — unique every invocation
   keys_snippet: |
     def gen_keys():
         import os
@@ -132,8 +132,8 @@ encoders:
         }
     }
 - index: 7
-  name: xor_random
-  desc: Multi-byte XOR with per-build random 16-byte key
+  name: xor_dynamic
+  desc: Multi-byte XOR with per-build cryptographically random 16-byte key — unique every invocation
   keys_snippet: |
     def gen_keys():
         import os
@@ -148,8 +148,8 @@ encoders:
         enc_buf[i] ^= xor_key[i % xor_key_len];
     }
 - index: 8
-  name: tea
-  desc: TEA (32-round Feistel, 64-bit block, random 128-bit key) — CTR mode over block index
+  name: tea_ctr
+  desc: Tiny Encryption Algorithm in CTR mode — 32-round Feistel network, 64-bit block, per-build random 128-bit key
   keys_snippet: |
     def gen_keys():
         import os
@@ -198,8 +198,8 @@ encoders:
         }
     }
 - index: 9
-  name: xtea
-  desc: XTEA-CTR (32 rounds, hardened TEA variant, random 128-bit key)
+  name: xtea_ctr
+  desc: eXtended TEA in CTR mode — hardened 32-round Feistel variant with per-build random 128-bit key
   keys_snippet: |
     def gen_keys():
         import os
@@ -252,7 +252,7 @@ encoders:
     }
 - index: 10
   name: chacha20
-  desc: ChaCha20 stream cipher with per-build random 256-bit key + 96-bit nonce
+  desc: ChaCha20 stream cipher (RFC 8439) — per-build random 256-bit key and 96-bit nonce, highest-security option
   keys_snippet: |
     def gen_keys():
         import os
@@ -331,8 +331,8 @@ encoders:
     }
 envelopes:
 - index: 0
-  name: none
-  desc: No envelope; prefer selecting this to emit bare byte array
+  name: bare_bytes
+  desc: No envelope — emit the raw encoded byte array directly, minimal footprint
   python_snippet: |
     def envelope(data: bytes) -> str:
         return ""
@@ -340,6 +340,7 @@ envelopes:
     // envelope 'none' is handled in the generator; this is a no-op stub
 - index: 1
   name: base91
+  desc: Compact binary-to-text encoding — denser than Base64, produces shorter output strings
   python_snippet: |
     # defines: envelope(data: bytes) -> str
     B91_ALPH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"'
@@ -398,6 +399,7 @@ envelopes:
     }
 - index: 2
   name: base64
+  desc: Standard Base64 encoding (RFC 4648) — the most widely compatible binary-to-text format
   python_snippet: |
     import base64
     def envelope(data: bytes) -> str:
@@ -423,6 +425,7 @@ envelopes:
     }
 - index: 3
   name: base32
+  desc: Base32 encoding (RFC 4648) — case-insensitive, human-readable alphabet of A-Z and 2-7
   python_snippet: |
     import base64
     def envelope(data: bytes) -> str:
@@ -451,7 +454,7 @@ envelopes:
     }
 - index: 4
   name: hex
-  desc: Hexadecimal (Base16) encoding
+  desc: Hexadecimal Base16 encoding — simple, universally parseable, double the original size
   python_snippet: |
     def envelope(data: bytes) -> str:
         return data.hex()
@@ -477,7 +480,7 @@ envelopes:
     }
 - index: 5
   name: base58
-  desc: Bitcoin-style Base58 encoding
+  desc: Bitcoin-style Base58 — visually unambiguous alphabet (no 0/O/I/l), compact and URL-safe
   python_snippet: |
     def envelope(data: bytes) -> str:
         ALPHABET = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
@@ -536,7 +539,7 @@ envelopes:
     unsigned int enc_len = out_len;
 - index: 6
   name: base85
-  desc: Ascii85 (Base85) encoding
+  desc: Ascii85 / Adobe Base85 — high-density encoding, 4 raw bytes → 5 printable ASCII characters
   python_snippet: |
     import base64
     def envelope(data: bytes) -> str:
@@ -576,7 +579,7 @@ envelopes:
     }
 - index: 7
   name: ipv4_array
-  desc: Encodes shellcode as a comma-separated list of IPv4 addresses
+  desc: IPv4 address list camouflage — encodes payload bytes as a comma-separated list of valid-looking IPv4 addresses
   python_snippet: |
     def envelope(data: bytes) -> str:
         padded = data + b'\x00' * ((4 - len(data) % 4) % 4)
@@ -610,7 +613,7 @@ envelopes:
     }
 - index: 8
   name: mac_array
-  desc: Encodes shellcode as a comma-separated list of MAC addresses
+  desc: MAC address list camouflage — encodes payload bytes as a comma-separated list of IEEE 802 MAC addresses
   python_snippet: |
     def envelope(data: bytes) -> str:
         padded = data + b'\x00' * ((6 - len(data) % 6) % 6)
@@ -631,7 +634,7 @@ envelopes:
     \ char)((high_nibble << 4) | d);\n        high_nibble = -1;\n    }\n}\n"
 - index: 9
   name: uuid_array
-  desc: Encodes shellcode as an array of strict UUID strings
+  desc: UUID list camouflage — encodes payload bytes as an array of RFC 4122 UUID string literals (little-endian)
   python_snippet: |
     import uuid
     def envelope(data: bytes) -> str:
@@ -676,7 +679,7 @@ envelopes:
     }
 - index: 10
   name: base32hex
-  desc: Base32Hex encoding (RFC 4648)
+  desc: Base32Hex encoding (RFC 4648 §7) — extended hex alphabet 0-9 A-V, avoids ambiguous characters
   python_snippet: |
     import base64
     def envelope(data: bytes) -> str:
@@ -709,7 +712,7 @@ envelopes:
 web_helpers:
 - index: 0
   name: winhttp
-  desc: Windows WinHTTP API (Windows-only, no extra dependencies)
+  desc: Windows WinHTTP API — native HTTP client, TLS support, no external dependencies beyond system libs
   cpp_includes: |
     #include <stdexcept>
     #include <string>
@@ -780,7 +783,7 @@ web_helpers:
     }
 - index: 1
   name: wininet
-  desc: Windows WinINet API (Windows-only, simpler than WinHTTP)
+  desc: Windows WinINet API — simpler HTTP client with proxy auto-detection, Internet Explorer heritage
   cpp_includes: |
     #include <stdexcept>
     #include <string>
@@ -819,7 +822,7 @@ web_helpers:
     }
 - index: 2
   name: urlmon
-  desc: Windows URLMon IStream download (Windows-only, minimal code)
+  desc: Windows URLMoniker IStream API — minimal-code URL download via COM, block until complete
   cpp_includes: |
     #include <stdexcept>
     #include <string>

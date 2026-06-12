@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
-# Internal identifier names that the generator emits and that polymorphism
+# Internal identifier names that the generator emits and that the diversifier
 # is allowed to rewrite. Anything not in this set is left untouched.
 #
 # Public symbols (``code_blob``, ``code_blob_len``) are deliberately *not*
@@ -49,8 +49,8 @@ INTERNAL_SYMBOLS = (
 
 
 # Generated-key variable patterns: keys_snippet results land under these
-# names in the YAML catalog (xor_key, xtea_key, tea_key, chacha_key/nonce, ...).
-# Rather than enumerate them, polymorphism finds any identifier that ends
+# names in the YAML playbook (xor_key, xtea_key, tea_key, chacha_key/nonce, ...).
+# Rather than enumerate them, the diversifier finds any identifier that ends
 # in ``_key`` / ``_nonce`` / ``_iv`` / ``_salt`` and renames it consistently.
 KEY_SUFFIX_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*?)(_key|_nonce|_iv|_salt|_round)\b")
 
@@ -162,10 +162,7 @@ class Diversifier:
     def header_banner(self) -> str:
         """Comment banner identifying the run (seed only — not the level).
 
-        Polymorphism level isn't included because that's a build-time
+        The diversification level isn't included because that's a build-time
         knob, while the seed alone is enough to reproduce the output.
         """
         return f"// bin2shell — generated with seed {self.seed:#018x}\n"
-
-
-Polymorphism = Diversifier

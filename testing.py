@@ -140,7 +140,7 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
                 TestCase(
                     label=f"enc={enc.index} env={env.index}",
                     args=["--encoder", str(enc.index), "--envelope", str(env.index), input_path],
-                    mode="catalog",
+                    mode="playbook",
                     encoder=f"{enc.index}:{enc.name}",
                     envelope=f"{env.index}:{env.name}",
                     input_path=input_path,
@@ -154,7 +154,7 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
                 TestCase(
                     label=f"enc={enc.index} env=default",
                     args=["--encoder", str(enc.index), input_path],
-                    mode="catalog-default-env",
+                    mode="playbook-default-env",
                     encoder=f"{enc.index}:{enc.name}",
                     envelope=f"{default_env.index}:{default_env.name}",
                     input_path=input_path,
@@ -165,7 +165,7 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
                 TestCase(
                     label=f"enc=default env={env.index}",
                     args=["--envelope", str(env.index), input_path],
-                    mode="catalog-default-enc",
+                    mode="playbook-default-enc",
                     encoder=f"{default_enc.index}:{default_enc.name}",
                     envelope=f"{env.index}:{env.name}",
                     input_path=input_path,
@@ -190,7 +190,6 @@ def build_cases(encoders: list[AlgoSpec], envelopes: list[AlgoSpec], input_path:
                         "--envelope", str(pick_env.index),
                         "--carrier", carrier_name,
                         "--carrier-out", carrier_file,
-                        "--seed", "0xCAFE",
                         input_path,
                     ],
                     mode=f"carrier-{carrier_name}",
@@ -312,7 +311,7 @@ def render_report(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run bin2shell across all catalog inputs and compile the output.")
+    parser = argparse.ArgumentParser(description="Run bin2shell across all playbook inputs and compile the output.")
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Input binary to test.")
     parser.add_argument("--yaml", dest="yaml_path", default=DEFAULT_YAML, help="Path to algos.yaml.")
     parser.add_argument("--out", dest="out_path", default=DEFAULT_REPORT, help="HTML report output path.")
