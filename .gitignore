@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# .NET
+ui/bin/
+ui/obj/
+*.user
+
+# Build outputs
+*.exe
+*.dll
+*.pdb
+*.zip
+
+# Test artifacts
+test/
+.test-carrier-out/
+.pytest_cache/
+report.html
+report_web.html
+*.bak
+
+# Binary payloads
+*.bin
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.sln
+*.sln.docstates
+
+# Output
+output_snippets/
+
+# Misc
+inspect.txt
+
+# Backups
+_backup/

