@@ -13,7 +13,7 @@ Ships as a Python CLI (`main.py`) and a basic WinForms GUI (`bin2shell.exe`).
 - **External-file carriers**: Package the encoded payload as a valid-looking `.png` / `.bmp` / `.ico` / `.ini`; the generated C++ reads the file at runtime and extracts the inner bytes
 - **Web bundle mode**: Emit a YAML package with a WinHTTP/WinINet/URLMon C++ template that fetches the payload over HTTP at runtime
 - **YAML-driven playbook**: Declare encoders, envelopes, and web helpers in data/yaml/algos.yaml. Carriers reside in bin2shell/carriers.py and are automatically listed in --help. You can add your own code—just follow the YAML structure to reuse your functions and automate your pipeline with ease.
-- **GUI** — dark-mode WinForms front-end exposing every flag, including the carrier dropdown
+- **GUI**: A simple dark not very cute Winforms, in case you like buttons over CLI (you rather not).
 
 ## Requirements
 
