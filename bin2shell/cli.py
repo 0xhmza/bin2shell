@@ -20,7 +20,7 @@ from .carriers import (
     list_carriers,
     render_carrier_cpp,
 )
-from .playbook import Playbook
+from .playbook import Playbook, validate_user_key
 from .formatting import make_c_array, make_c_bstring, make_len_var, safe_format_cpp
 from .utils import get_terminal_width, read_file
 
@@ -83,6 +83,7 @@ class CLIArgs:
     carrier: Optional[str] = None
     carrier_out: Optional[str] = None
     carrier_runtime_path: Optional[str] = None
+    key: Optional[str] = None
 
 
 @dataclass
@@ -375,6 +376,9 @@ def _build_parser(yaml_path: str) -> argparse.ArgumentParser:
                         help="web helper index for HTTP fetch implementation (see list below)")
     parser.add_argument("-c", "-Carrier", "--carrier", dest="carrier", default=None, metavar="NAME|N",
                         help="wrap the encoded payload in an external file (ini, png, bmp, ico — see list below)")
+    parser.add_argument("-k", "-Key", "--key", dest="key", default=None, metavar="KEY",
+                        help="key string for keyed encoders (1-64 characters); "
+                             "if omitted a random key is generated")
     parser.add_argument("-CarrierOut", "--carrier-out", dest="carrier_out", default=None, metavar="FILE",
                         help="write the wrapped carrier file to FILE "
                              "(default: <output>.<carrier-ext> or payload.<ext> when stdout)")
@@ -424,6 +428,7 @@ def _parse_args(argv: List[str]) -> CLIArgs:
         carrier=ns.carrier,
         carrier_out=ns.carrier_out,
         carrier_runtime_path=ns.carrier_runtime_path,
+        key=ns.key,
     )
 
 
@@ -466,7 +471,7 @@ def _build_playbook_context(
     env_idx = args.envelope_index if args.envelope_index is not None else playbook.default_index("envelopes")
 
     try:
-        enc_bytes, keys_dict, _enc_emit, enc_spec = playbook.run_encode(enc_idx, data)
+        enc_bytes, keys_dict, _enc_emit, enc_spec = playbook.run_encode(enc_idx, data, user_key=args.key)
     except Exception as exc:
         raise CLIError(f"Encode error (index {enc_idx}): {exc}")
 
@@ -759,6 +764,10 @@ def main(argv: List[str]) -> int:
 
     try:
         args = _parse_args(argv)
+        try:
+            validate_user_key(args.key)
+        except ValueError as exc:
+            raise CLIError(f"Error: invalid key: {exc}")
         data = _load_binary(args.input_path)
         term_width = max(40, get_terminal_width())
 
