@@ -20,51 +20,57 @@ encoders:
         enc_buf[i] ^= 0x42;
     }
 - index: 2
-  name: rc4_static
-  desc: RC4 stream cipher with hard-coded 9-byte key — lightweight symmetric encryption
+  name: rc4
+  desc: RC4 stream cipher — 32-byte key (user-provided or randomly generated)
+  key:
+    - name: rc4_key
+      length: 32
   python_snippet: |
-    def encode(data: bytes, key: str = "bin2shell") -> bytes:
-        key = key.encode()
+    def encode(data: bytes, keys: dict) -> bytes:
+        key = keys["rc4_key"]
         S = list(range(256))
         j = 0
         for i in range(256):
             j = (j + S[i] + key[i % len(key)]) % 256
             S[i], S[j] = S[j], S[i]
-        j = 0; i = 0
+        i = j = 0
         out = bytearray()
-        for char in data:
+        for b in data:
             i = (i + 1) % 256
             j = (j + S[i]) % 256
             S[i], S[j] = S[j], S[i]
-            out.append(char ^ S[(S[i] + S[j]) % 256])
+            out.append(b ^ S[(S[i] + S[j]) % 256])
         return bytes(out)
   cpp_inverse: |
-    // RC4 Decrypt
-    unsigned char S[256];
-    for (int i = 0; i < 256; ++i) S[i] = i;
-    const char* key = "bin2shell";
-    int key_len = 9;
-    for (int i = 0, j = 0; i < 256; ++i) {
-        j = (j + S[i] + key[i % key_len]) % 256;
-        unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
-    }
-    for (unsigned int i = 0, x = 0, y = 0; i < enc_len; ++i) {
-        x = (x + 1) % 256;
-        y = (y + S[x]) % 256;
-        unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
-        enc_buf[i] ^= S[(S[x] + S[y]) % 256];
+    // RC4 stream cipher with a user-provided or randomly generated key
+    {
+        unsigned char S[256];
+        for (int i = 0; i < 256; ++i) S[i] = (unsigned char)i;
+        unsigned int j = 0;
+        for (int i = 0; i < 256; ++i) {
+            j = (j + S[i] + rc4_key[i % rc4_key_len]) & 0xFF;
+            unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
+        }
+        unsigned int x = 0, y = 0;
+        for (unsigned int k = 0; k < enc_len; ++k) {
+            x = (x + 1) & 0xFF;
+            y = (y + S[x]) & 0xFF;
+            unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
+            enc_buf[k] ^= S[(S[x] + S[y]) & 0xFF];
+        }
     }
 - index: 3
-  name: xor_static_key
-  desc: Multi-byte repeating XOR — each byte XORed with a cycled static key string
+  name: xor
+  desc: Multi-byte repeating XOR — 32-byte key (user-provided or randomly generated)
+  key:
+    - name: xor_key
+      length: 32
   python_snippet: |
-    def encode(data: bytes, key: str = "secret") -> bytes:
-        key_bytes = key.encode()
-        return bytes(data[i] ^ key_bytes[i % len(key_bytes)] for i in range(len(data)))
+    def encode(data: bytes, keys: dict) -> bytes:
+        k = keys["xor_key"]
+        return bytes(data[i] ^ k[i % len(k)] for i in range(len(data)))
   cpp_inverse: |
-    // Multi-byte repeating XOR dec
-    const char* xor_key = "secret";
-    int xor_key_len = 6;
+    // Multi-byte repeating XOR with a user-provided or randomly generated key
     for (unsigned int i = 0; i < enc_len; ++i) {
         enc_buf[i] ^= xor_key[i % xor_key_len];
     }
@@ -91,69 +97,11 @@ encoders:
         enc_buf[i] = (unsigned char)((enc_buf[i] >> 3) | ((enc_buf[i] & 0x07) << 5));
     }
 - index: 6
-  name: rc4_dynamic
-  desc: RC4 stream cipher with per-build cryptographically random 16-byte key — unique every invocation
-  keys_snippet: |
-    def gen_keys():
-        import os
-        return {"rc4_key": os.urandom(16)}
-  python_snippet: |
-    def encode(data: bytes, keys: dict) -> bytes:
-        key = keys["rc4_key"]
-        S = list(range(256))
-        j = 0
-        for i in range(256):
-            j = (j + S[i] + key[i % len(key)]) % 256
-            S[i], S[j] = S[j], S[i]
-        i = j = 0
-        out = bytearray()
-        for b in data:
-            i = (i + 1) % 256
-            j = (j + S[i]) % 256
-            S[i], S[j] = S[j], S[i]
-            out.append(b ^ S[(S[i] + S[j]) % 256])
-        return bytes(out)
-  cpp_inverse: |
-    // RC4 with random per-build key
-    {
-        unsigned char S[256];
-        for (int i = 0; i < 256; ++i) S[i] = (unsigned char)i;
-        unsigned int j = 0;
-        for (int i = 0; i < 256; ++i) {
-            j = (j + S[i] + rc4_key[i % rc4_key_len]) & 0xFF;
-            unsigned char t = S[i]; S[i] = S[j]; S[j] = t;
-        }
-        unsigned int x = 0, y = 0;
-        for (unsigned int k = 0; k < enc_len; ++k) {
-            x = (x + 1) & 0xFF;
-            y = (y + S[x]) & 0xFF;
-            unsigned char t = S[x]; S[x] = S[y]; S[y] = t;
-            enc_buf[k] ^= S[(S[x] + S[y]) & 0xFF];
-        }
-    }
-- index: 7
-  name: xor_dynamic
-  desc: Multi-byte XOR with per-build cryptographically random 16-byte key — unique every invocation
-  keys_snippet: |
-    def gen_keys():
-        import os
-        return {"xor_key": os.urandom(16)}
-  python_snippet: |
-    def encode(data: bytes, keys: dict) -> bytes:
-        k = keys["xor_key"]
-        return bytes(data[i] ^ k[i % len(k)] for i in range(len(data)))
-  cpp_inverse: |
-    // Multi-byte XOR with random per-build key
-    for (unsigned int i = 0; i < enc_len; ++i) {
-        enc_buf[i] ^= xor_key[i % xor_key_len];
-    }
-- index: 8
   name: tea_ctr
-  desc: Tiny Encryption Algorithm in CTR mode — 32-round Feistel network, 64-bit block, per-build random 128-bit key
-  keys_snippet: |
-    def gen_keys():
-        import os
-        return {"tea_key": os.urandom(16)}
+  desc: Tiny Encryption Algorithm in CTR mode — 32-round Feistel network, 64-bit block, 128-bit key
+  key:
+    - name: tea_key
+      length: 16
   python_snippet: |
     def encode(data: bytes, keys: dict) -> bytes:
         import struct
@@ -197,13 +145,12 @@ encoders:
             }
         }
     }
-- index: 9
+- index: 7
   name: xtea_ctr
-  desc: eXtended TEA in CTR mode — hardened 32-round Feistel variant with per-build random 128-bit key
-  keys_snippet: |
-    def gen_keys():
-        import os
-        return {"xtea_key": os.urandom(16)}
+  desc: eXtended TEA in CTR mode — hardened 32-round Feistel variant, 128-bit key
+  key:
+    - name: xtea_key
+      length: 16
   python_snippet: |
     def encode(data: bytes, keys: dict) -> bytes:
         import struct
@@ -250,13 +197,14 @@ encoders:
             }
         }
     }
-- index: 10
+- index: 8
   name: chacha20
-  desc: ChaCha20 stream cipher (RFC 8439) — per-build random 256-bit key and 96-bit nonce, highest-security option
-  keys_snippet: |
-    def gen_keys():
-        import os
-        return {"chacha_key": os.urandom(32), "chacha_nonce": os.urandom(12)}
+  desc: ChaCha20 stream cipher (RFC 8439) — 256-bit key and 96-bit nonce, highest-security option
+  key:
+    - name: chacha_key
+      length: 32
+    - name: chacha_nonce
+      length: 12
   python_snippet: |
     def encode(data: bytes, keys: dict) -> bytes:
         import struct

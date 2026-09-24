@@ -1,6 +1,59 @@
 from __future__ import annotations
+import hashlib
+import secrets
+import struct
 import textwrap
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+
+# Bounds for a user-supplied key string. The key is a human-readable string;
+# per-algorithm key material is derived from it with SHA-256, so any length in
+# this range works for every keyed encoder. An empty/blank key means "generate
+# a random one".
+KEY_MIN_LENGTH = 1
+KEY_MAX_LENGTH = 64
+_RANDOM_KEY_BYTES = 24  # secrets.token_urlsafe(24) -> 32 characters
+
+
+def validate_user_key(user_key: Any) -> Optional[str]:
+    """Normalize a user-supplied key string.
+
+    Returns the key string when provided and valid, ``None`` when no key was
+    given (``None``/blank), and raises :class:`ValueError` when the key falls
+    outside the allowed length bounds.
+    """
+    if user_key is None:
+        return None
+    key_str = str(user_key)
+    if not key_str.strip():
+        return None
+    n = len(key_str)
+    if n < KEY_MIN_LENGTH:
+        raise ValueError(f"key is too short ({n} character(s); minimum {KEY_MIN_LENGTH})")
+    if n > KEY_MAX_LENGTH:
+        raise ValueError(f"key is too long ({n} characters; maximum {KEY_MAX_LENGTH})")
+    return key_str
+
+
+def _derive_key_material(key_str: str, parts: List[Tuple[str, int]]) -> Dict[str, bytes]:
+    """Derive deterministic, length-exact key bytes for each requested part.
+
+    Uses SHA-256 in a per-name counter block so every algorithm receives
+    exactly the byte length it needs regardless of the input key length.
+    """
+    seed = key_str.encode("utf-8")
+    result: Dict[str, bytes] = {}
+    for name, length in parts:
+        out = bytearray()
+        counter = 0
+        while len(out) < length:
+            block = hashlib.sha256(
+                seed + name.encode("utf-8") + struct.pack(">I", counter)
+            ).digest()
+            out += block
+            counter += 1
+        result[name] = bytes(out[:length])
+    return result
 
 
 REQUIRED_FIELDS = {
@@ -103,18 +156,48 @@ class Playbook:
             raise RuntimeError(f"Snippet did not define {symbol_name}")
         return loc[symbol_name]
 
-    def _maybe_keys(self, spec: Dict[str, Any]) -> Dict[str, bytes]:
-        if "keys_snippet" not in spec or not spec["keys_snippet"]:
+    def _resolve_keys(self, spec: Dict[str, Any], user_key: Any) -> Dict[str, bytes]:
+        """Resolve an encoder's key material from its ``key`` declaration.
+
+        ``key`` is an optional list of ``{name, length}`` entries describing
+        the key arrays the encoder's C++ inverse expects. When the user
+        supplied a key string it is validated and used to derive exact-length
+        bytes; otherwise a fresh random key is generated.
+        """
+        key_spec = spec.get("key")
+        if not key_spec:
             return {}
-        gen_keys = self._exec_snippet(spec["keys_snippet"], "gen_keys", {})
-        keys = gen_keys()
-        if not isinstance(keys, dict):
-            raise RuntimeError("gen_keys() must return dict[str, bytes]")
-        return keys
+        if not isinstance(key_spec, list) or not key_spec:
+            raise RuntimeError(
+                "encoder 'key' must be a non-empty list of {name, length} entries"
+            )
+        parts: List[Tuple[str, int]] = []
+        seen: set = set()
+        for entry in key_spec:
+            if not isinstance(entry, dict):
+                raise RuntimeError(
+                    "encoder 'key' entries must be objects with 'name' and 'length'"
+                )
+            name = entry.get("name")
+            length = entry.get("length")
+            if not isinstance(name, str) or not name:
+                raise RuntimeError("encoder 'key' entry 'name' must be a non-empty string")
+            if name in seen:
+                raise RuntimeError(f"encoder 'key' duplicate name '{name}'")
+            seen.add(name)
+            if isinstance(length, bool) or not isinstance(length, int) or not (1 <= length <= 256):
+                raise RuntimeError(
+                    f"encoder 'key' entry '{name}' length must be an integer 1..256"
+                )
+            parts.append((name, length))
+        key_str = validate_user_key(user_key)
+        if key_str is None:
+            key_str = secrets.token_urlsafe(_RANDOM_KEY_BYTES)
+        return _derive_key_material(key_str, parts)
 
 
     def run_encode(
-        self, idx: int, data: bytes
+        self, idx: int, data: bytes, user_key: Any = None
     ) -> Tuple[bytes, Dict[str, bytes], Dict[str, Any], Dict[str, Any]]:
         spec = self.encoders.get(idx)
         if not spec:
@@ -122,9 +205,9 @@ class Playbook:
         name = spec.get("name", "")
         if name.lower() in ("none", "passthrough"):
             return data, {}, {}, spec
-        keys = self._maybe_keys(spec)
+        keys = self._resolve_keys(spec, user_key)
         encode = self._exec_snippet(spec["python_snippet"], "encode", {})
-        # Call encode with keys only if a keys_snippet was defined; otherwise
+        # Call encode with keys only if a key declaration was present; otherwise
         # let the snippet use its default key parameter.
         if keys:
             out = encode(data, keys)
